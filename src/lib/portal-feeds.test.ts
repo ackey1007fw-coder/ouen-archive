@@ -12,7 +12,21 @@ import {
 
 const silentLogger = { warn: () => undefined };
 
-function makeFeed(personId: PersonId, itemCount = 1): PortalFeed {
+function getSourceSiteUrl(personId: PersonId): string {
+  const source = PORTAL_FEED_SOURCES.find(
+    (candidate) => candidate.personId === personId,
+  )!;
+
+  return `${new URL(source.url).origin}/`;
+}
+
+function makeFeed(
+  personId: PersonId,
+  itemCount = 1,
+  siteUrl = getSourceSiteUrl(personId),
+): PortalFeed {
+  const siteOrigin = new URL(siteUrl).origin;
+
   return {
     generatedAt: "2026-08-19T00:00:00+09:00",
     items: Array.from({ length: itemCount }, (_, index) => ({
@@ -21,11 +35,11 @@ function makeFeed(personId: PersonId, itemCount = 1): PortalFeed {
       publishedAt: `2026-08-1${9 - index}T12:00:00+09:00`,
       title: `${personId} update ${index}`,
       type: "news" as const,
-      url: `https://example.com/${personId}/${index}`,
+      url: `${siteOrigin}/${personId}/${index}`,
     })),
     personId,
     siteName: `${personId} support site`,
-    siteUrl: "https://example.com/",
+    siteUrl,
     version: 1,
   };
 }
@@ -121,9 +135,24 @@ test("skips a Zod-invalid feed", async () => {
 
 test("skips a valid feed whose personId does not match its source", async () => {
   const source = PORTAL_FEED_SOURCES[0];
+  const sourceSiteUrl = `${new URL(source.url).origin}/`;
 
   const result = await fetchPortalFeeds({
-    fetchImpl: async () => responseFor(makeFeed("yukako")),
+    fetchImpl: async () =>
+      responseFor(makeFeed("yukako", 1, sourceSiteUrl)),
+    logger: silentLogger,
+    sources: [source],
+  });
+
+  assert.deepEqual(result, []);
+});
+
+test("skips a feed whose siteUrl origin does not match its source", async () => {
+  const source = PORTAL_FEED_SOURCES[0];
+  const wrongSiteFeed = makeFeed("mily", 1, "https://wrong.example/");
+
+  const result = await fetchPortalFeeds({
+    fetchImpl: async () => responseFor(wrongSiteFeed),
     logger: silentLogger,
     sources: [source],
   });

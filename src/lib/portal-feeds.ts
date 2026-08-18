@@ -96,6 +96,15 @@ async function fetchPortalFeed(
       );
     }
 
+    const sourceOrigin = new URL(source.url).origin;
+    const feedOrigin = new URL(parsed.data.siteUrl).origin;
+
+    if (feedOrigin !== sourceOrigin) {
+      throw new Error(
+        `Expected site origin ${sourceOrigin}, received ${feedOrigin}`,
+      );
+    }
+
     return parsed.data;
   } catch (error) {
     if (controller.signal.aborted) {

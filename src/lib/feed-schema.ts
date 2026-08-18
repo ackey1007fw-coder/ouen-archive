@@ -25,11 +25,11 @@ const IsoDateTimeWithOffsetSchema = z
 
 export const PortalFeedItemSchema = z
   .object({
-    id: z.string().min(1).max(160),
+    id: z.string().min(1),
     personId: PersonIdSchema,
     type: PortalFeedItemTypeSchema,
-    title: z.string().min(1).max(200),
-    summary: z.string().min(1).max(500).optional(),
+    title: z.string().min(1),
+    summary: z.string().min(1).optional(),
     url: z.string().url(),
     sourceUrl: z.string().url().optional(),
     publishedAt: IsoDateTimeWithOffsetSchema,
@@ -44,7 +44,7 @@ export const PortalFeedSchema = z
   .object({
     version: z.literal(1),
     personId: PersonIdSchema,
-    siteName: z.string().min(1).max(100),
+    siteName: z.string().min(1),
     siteUrl: z.string().url(),
     generatedAt: IsoDateTimeWithOffsetSchema,
     items: z.array(PortalFeedItemSchema).max(20),
@@ -67,6 +67,14 @@ export const PortalFeedSchema = z
           code: "custom",
           message: "Item id must start with the feed personId",
           path: ["items", index, "id"],
+        });
+      }
+
+      if (new URL(item.url).origin !== siteOrigin) {
+        context.addIssue({
+          code: "custom",
+          message: "Item URL must be hosted by the source site",
+          path: ["items", index, "url"],
         });
       }
 
