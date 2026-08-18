@@ -10,7 +10,7 @@ export function PersonCard({ person }: { person: Person }) {
           src={person.image}
           alt=""
           fill
-          loading="eager"
+          unoptimized
           sizes="(max-width: 767px) calc(100vw - 3.3rem), (max-width: 1279px) calc(50vw - 3.5rem), 18vw"
           style={{ objectFit: "cover", objectPosition: person.imagePosition }}
         />

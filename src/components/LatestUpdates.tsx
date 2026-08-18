@@ -5,9 +5,6 @@ export function LatestUpdates() {
         <div className="latest-heading">
           <p className="eyebrow">LATEST UPDATES</p>
           <h2 id="latest-updates-title">最新のお知らせ</h2>
-          <p>
-            将来は各サイトの更新を、公開日時が新しい順にここへまとめます。
-          </p>
         </div>
 
         <div className="empty-state" role="status">
@@ -18,11 +15,8 @@ export function LatestUpdates() {
             <span />
             <span />
           </div>
-          <strong>更新連携を準備中です</strong>
-          <p>
-            各サイトの更新をここに自動表示予定です。
-            最新情報は、それぞれの応援サイトでご確認ください。
-          </p>
+          <strong>最新情報の自動連携を準備中です。</strong>
+          <p>最新情報は、それぞれの応援サイトでご確認ください。</p>
         </div>
       </div>
     </section>

@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-export const alt = "OUEN ARCHIVE — Fan-made support portal";
+export const alt = "応援アーカイブ — 夢と活動の記録";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -43,15 +43,27 @@ export default function OpenGraphImage() {
           letterSpacing: -2,
         }}
       >
-        OUEN ARCHIVE
+        応援アーカイブ
       </div>
       <div
         style={{
           display: "flex",
-          marginTop: 30,
+          marginTop: 24,
           color: "#68645d",
-          fontSize: 27,
-          letterSpacing: 5,
+          fontSize: 34,
+          letterSpacing: 8,
+        }}
+      >
+        夢と活動の記録
+      </div>
+      <div
+        style={{
+          display: "flex",
+          marginTop: 34,
+          color: "#49685a",
+          fontSize: 20,
+          fontWeight: 700,
+          letterSpacing: 6,
           textTransform: "uppercase",
         }}
       >

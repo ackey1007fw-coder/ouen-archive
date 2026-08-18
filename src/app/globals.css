@@ -195,6 +195,20 @@ a {
   letter-spacing: 0.18em;
 }
 
+.hero-brand {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.hero-brand-subtitle {
+  color: var(--ink-soft);
+  font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
+  font-size: clamp(0.9rem, 2vw, 1.05rem);
+  letter-spacing: 0.22em;
+}
+
 .hero-section h1 {
   max-width: 54rem;
   margin: 1rem auto 1.35rem;
@@ -247,8 +261,7 @@ a {
   line-height: 1.25;
 }
 
-.section-heading > p:last-child,
-.latest-heading > p:last-child {
+.section-heading > p:last-child {
   color: var(--ink-soft);
   line-height: 1.8;
 }
@@ -375,10 +388,6 @@ a {
 
 .latest-section .eyebrow {
   color: #f3b497;
-}
-
-.latest-heading > p:last-child {
-  color: rgba(255, 253, 249, 0.68);
 }
 
 .empty-state {

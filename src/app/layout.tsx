@@ -24,22 +24,22 @@ const siteUrl =
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   applicationName: "応援アーカイブ",
-  title: "応援アーカイブ｜5つの個人応援サイトをつなぐ非公式ポータル",
+  title: "応援アーカイブ｜夢と活動の記録",
   description:
-    "応援アーカイブは、5つの個人応援サイトをつなぐファン制作の非公式ポータルです。",
+    "夢と活動の記録をたどりながら、5つの個人応援サイトへつなぐファン制作の非公式ポータルです。",
   openGraph: {
-    title: "応援アーカイブ",
+    title: "応援アーカイブ｜夢と活動の記録",
     description:
-      "5つの個人応援サイトをつなぐ、ファン制作の非公式ポータル。",
+      "夢と活動の記録をたどりながら、5つの個人応援サイトへつなぐ非公式ポータル。",
     siteName: "応援アーカイブ",
     locale: "ja_JP",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "応援アーカイブ",
+    title: "応援アーカイブ｜夢と活動の記録",
     description:
-      "5つの個人応援サイトをつなぐ、ファン制作の非公式ポータル。",
+      "夢と活動の記録をたどりながら、5つの個人応援サイトへつなぐ非公式ポータル。",
   },
 };
 

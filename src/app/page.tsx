@@ -16,7 +16,10 @@ export default function Home() {
               <span key={person.id} />
             ))}
           </div>
-          <p className="eyebrow">FAN-MADE SUPPORT PORTAL</p>
+          <div className="hero-brand">
+            <p className="eyebrow">応援アーカイブ</p>
+            <p className="hero-brand-subtitle">夢と活動の記録</p>
+          </div>
           <h1 id="hero-title">応援の入口を、ひとつに。</h1>
           <p className="hero-copy">
             応援アーカイブは、5つの個人応援サイトをつなぐ
@@ -37,9 +40,7 @@ export default function Home() {
           <div className="section-heading">
             <p className="eyebrow">SUPPORT SITES</p>
             <h2 id="support-sites-title">それぞれの応援サイトへ</h2>
-            <p>
-              5つのカードは、同じ大きさ・同じ情報構成でご案内しています。
-            </p>
+            <p>それぞれの活動や記録へ、ここから。</p>
           </div>
 
           <div className="person-grid">
