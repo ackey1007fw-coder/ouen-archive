@@ -1,10 +1,15 @@
-import { LatestUpdates } from "@/components/LatestUpdates";
 import { PersonCard } from "@/components/PersonCard";
+import { PortalFeedSections } from "@/components/PortalFeedSections";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { persons } from "@/data/persons";
+import { mergePortalFeedItems } from "@/lib/feed-view";
+import { fetchPortalFeeds } from "@/lib/portal-feeds";
 
-export default function Home() {
+export default async function Home() {
+  const feeds = await fetchPortalFeeds();
+  const feedItems = mergePortalFeedItems(feeds);
+
   return (
     <div className="page-shell">
       <SiteHeader />
@@ -53,7 +58,7 @@ export default function Home() {
           </div>
         </section>
 
-        <LatestUpdates />
+        <PortalFeedSections items={feedItems} />
       </main>
 
       <SiteFooter />

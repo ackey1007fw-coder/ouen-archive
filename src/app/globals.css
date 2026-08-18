@@ -44,6 +44,16 @@ a {
   color: inherit;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .skip-link {
   position: fixed;
   top: 0.75rem;
@@ -257,6 +267,7 @@ a {
 }
 
 .section-heading h2,
+.today-heading h2,
 .latest-heading h2 {
   margin: 0.8rem 0 1rem;
   font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
@@ -367,9 +378,101 @@ a {
 
 .person-card:focus-visible,
 .hero-link:focus-visible,
+.today-item-link:focus-visible,
+.latest-item-link:focus-visible,
 .footer-link:focus-visible {
   outline: 3px solid var(--apricot);
   outline-offset: 5px;
+}
+
+.today-section {
+  border-block: 1px solid var(--line);
+  background: rgba(238, 231, 220, 0.68);
+  padding-block: 5.5rem;
+}
+
+.today-heading {
+  margin-bottom: 2.25rem;
+}
+
+.today-list,
+.latest-list {
+  display: grid;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.today-list {
+  gap: 0.85rem;
+}
+
+.today-item {
+  min-width: 0;
+}
+
+.today-item-link {
+  display: grid;
+  min-height: 6.4rem;
+  align-items: center;
+  grid-template-columns: minmax(6.5rem, 0.42fr) minmax(0, 1.58fr) auto;
+  gap: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  background: rgba(255, 253, 249, 0.9);
+  padding: 1.15rem 1.25rem;
+  text-decoration: none;
+  transition:
+    border-color 180ms ease,
+    transform 180ms ease;
+}
+
+.today-meta {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.42rem;
+}
+
+.today-meta time {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
+.today-meta span {
+  color: var(--leaf);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.today-body {
+  min-width: 0;
+}
+
+.today-body p {
+  margin: 0 0 0.35rem;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.today-body h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.today-arrow {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--apricot-light);
+  color: #74412d;
+  font-weight: 800;
 }
 
 .latest-section {
@@ -393,6 +496,88 @@ a {
 .latest-layout {
   display: grid;
   gap: 2.5rem;
+}
+
+.latest-heading > p:last-child {
+  max-width: 28rem;
+  color: rgba(255, 253, 249, 0.68);
+  line-height: 1.8;
+}
+
+.latest-list {
+  gap: 0.85rem;
+}
+
+.latest-item {
+  min-width: 0;
+}
+
+.latest-item-link {
+  display: block;
+  min-height: 8.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 1.25rem;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1.25rem;
+  text-decoration: none;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease;
+}
+
+.latest-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.7rem;
+  color: rgba(255, 253, 249, 0.66);
+  font-size: 0.72rem;
+}
+
+.latest-meta strong {
+  color: #f3b497;
+  font-size: 0.78rem;
+}
+
+.latest-meta span {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 0.18rem 0.48rem;
+}
+
+.latest-meta time {
+  margin-left: auto;
+}
+
+.latest-item h3 {
+  margin: 0.75rem 0 0;
+  overflow-wrap: anywhere;
+  font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
+  font-size: 1.08rem;
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.latest-summary {
+  display: -webkit-box;
+  margin: 0.65rem 0 0;
+  overflow: hidden;
+  color: rgba(255, 253, 249, 0.7);
+  font-size: 0.84rem;
+  line-height: 1.75;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.latest-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.9rem;
+  color: #f3b497;
+  font-size: 0.78rem;
+  font-weight: 750;
 }
 
 .latest-section .eyebrow {
@@ -513,7 +698,7 @@ a {
 
   .latest-layout {
     grid-template-columns: minmax(0, 0.85fr) minmax(24rem, 1.15fr);
-    align-items: center;
+    align-items: start;
   }
 
   .site-footer-inner {
@@ -560,6 +745,17 @@ a {
   .hero-link:hover {
     color: var(--leaf);
   }
+
+  .today-item-link:hover {
+    transform: translateY(-0.15rem);
+    border-color: rgba(73, 104, 90, 0.36);
+  }
+
+  .latest-item-link:hover {
+    transform: translateY(-0.15rem);
+    border-color: rgba(255, 255, 255, 0.32);
+    background: rgba(255, 255, 255, 0.09);
+  }
 }
 
 @media (max-width: 35rem) {
@@ -589,6 +785,15 @@ a {
 
   .desktop-break {
     display: none;
+  }
+
+  .today-item-link {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.85rem;
+  }
+
+  .today-meta {
+    grid-column: 1 / -1;
   }
 }
 
