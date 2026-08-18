@@ -20,7 +20,10 @@ export default function Home() {
             <p className="eyebrow">応援アーカイブ</p>
             <p className="hero-brand-subtitle">夢と活動の記録</p>
           </div>
-          <h1 id="hero-title">応援の入口を、ひとつに。</h1>
+          <h1 id="hero-title">
+            <span>応援の入口を、</span>
+            <span>ひとつに。</span>
+          </h1>
           <p className="hero-copy">
             応援アーカイブは、5つの個人応援サイトをつなぐ
             <br className="desktop-break" />

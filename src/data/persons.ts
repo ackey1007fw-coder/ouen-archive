@@ -26,9 +26,9 @@ const PERSONS_BY_ID = {
     description:
       "みりぃの活動や最新情報をまとめる、ファン制作の応援サイトです。",
     siteUrl: "https://mily-fan-site.vercel.app/",
-    // Source: mily-fan-site/public/media/gallery/mily-b01-03-bouquet-smile-960.jpg
-    image: "/portraits/mily-b01-03-bouquet-smile-960.jpg",
-    imagePosition: "49% 28%",
+    // Source: mily-fan-site/public/media/drive-gallery/mily-b02-p46-1600.jpg
+    image: "/portraits/mily-b02-p46-1600.jpg",
+    imagePosition: "50% 22%",
   },
   yukako: {
     id: "yukako",

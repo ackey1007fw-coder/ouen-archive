@@ -136,6 +136,11 @@ a {
   letter-spacing: 0.08em;
 }
 
+.unofficial-label span,
+.hero-section h1 span {
+  display: inline-block;
+}
+
 .hero-section {
   position: relative;
   display: flex;
@@ -300,6 +305,10 @@ a {
 
 .person-image img {
   transition: transform 260ms ease;
+}
+
+.person-image img[src$="/mily-b02-p46-1600.jpg"] {
+  scale: 1.9;
 }
 
 .person-body {
@@ -559,6 +568,23 @@ a {
     border: 0;
     padding-inline: 0;
     text-align: right;
+  }
+
+  .hero-section {
+    min-height: 26rem;
+    padding-block: 2.75rem 3.25rem;
+  }
+
+  .hero-orbit {
+    margin-bottom: 1.15rem;
+  }
+
+  .hero-section h1 {
+    margin-block: 0.8rem 1rem;
+  }
+
+  .hero-link {
+    margin-top: 1.5rem;
   }
 
   .desktop-break {

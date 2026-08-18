@@ -12,7 +12,10 @@ export function SiteHeader() {
           </span>
           <span>応援アーカイブ</span>
         </div>
-        <p className="unofficial-label">ファン制作・非公式ポータル</p>
+        <p className="unofficial-label">
+          <span>ファン制作・</span>
+          <span>非公式ポータル</span>
+        </p>
       </div>
     </header>
   );
