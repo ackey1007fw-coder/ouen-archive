@@ -6,7 +6,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import Home, { revalidate as pageRevalidate } from "@/app/page";
 import { PortalFeedSections } from "@/components/PortalFeedSections";
-import { PERSON_ORDER } from "@/data/persons";
+import {
+  CREATOR_GITHUB_URL,
+  CREATOR_LINKS,
+  CREATOR_X_URL,
+} from "@/data/creator";
+import { PERSON_ORDER, persons } from "@/data/persons";
 import { MILY_SHOWROOM_URL } from "@/data/mily-links";
 import type { PortalFeedItem } from "@/lib/feed-schema";
 import {
@@ -320,4 +325,119 @@ test("18. TODAY / LATEST keep their existing planned wording", () => {
   assert.match(html, /夜の予定/);
   assert.match(html, /LATEST UPDATES/);
   assert.doesNotMatch(html, /配信中|開催中|LIVE NOW|ON AIR/);
+});
+
+const offlineFetch: typeof fetch = async () => {
+  throw new Error("offline fixture");
+};
+
+const liveFetch: typeof fetch = async (input) => {
+  const url = String(input);
+  const bodies = realtimeBodies({
+    live: { ...validLive, live: { ...validLive.live, state: "live" } },
+  });
+  const match = bodies[url as keyof typeof bodies];
+  if (match) return jsonResponse(match.body, 200, match.url);
+  throw new Error("feed offline");
+};
+
+test("19. the creator section sits after LATEST UPDATES and before the footer", async () => {
+  for (const fetchImpl of [offlineFetch, liveFetch]) {
+    const html = await renderHome(fetchImpl);
+
+    const latest = html.indexOf("LATEST UPDATES");
+    const creator = html.indexOf("creator-section");
+    const footer = html.indexOf("site-footer");
+
+    assert.ok(latest !== -1 && creator !== -1 && footer !== -1);
+    assert.ok(latest < creator, "creator section must follow LATEST UPDATES");
+    assert.ok(creator < footer, "creator section must precede the footer");
+  }
+});
+
+test("20. the creator section never appears before the hero", async () => {
+  const html = await renderHome(offlineFetch);
+
+  const hero = html.indexOf("hero-section");
+  const cards = html.indexOf("person-grid");
+  const creator = html.indexOf("creator-section");
+
+  assert.ok(hero !== -1 && cards !== -1 && creator !== -1);
+  assert.ok(hero < creator);
+  assert.ok(cards < creator);
+});
+
+test("21. the creator name and both SNS links render on the page", async () => {
+  const html = await renderHome(offlineFetch);
+
+  assert.match(html, /ABOUT THIS ARCHIVE/);
+  assert.match(html, /このサイトをつくっている人/);
+  assert.match(html, /あっきー 🌻🌴/);
+  assert.equal(CREATOR_X_URL, "https://x.com/ackey_RiRi_supp");
+  assert.equal(CREATOR_GITHUB_URL, "https://github.com/ackey1007fw-coder");
+  assert.match(html, /href="https:\/\/x\.com\/ackey_RiRi_supp"/);
+  assert.match(html, /href="https:\/\/github\.com\/ackey1007fw-coder"/);
+});
+
+test("22. creator SNS links open in a new tab with a safe rel", async () => {
+  const html = await renderHome(offlineFetch);
+
+  for (const link of CREATOR_LINKS) {
+    const anchor = html.match(
+      new RegExp(`<a[^>]*href="${link.url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"[^>]*>`),
+    );
+    assert.ok(anchor, `missing anchor for ${link.id}`);
+    assert.match(anchor[0], /target="_blank"/);
+    assert.match(anchor[0], /rel="noopener noreferrer"/);
+  }
+});
+
+test("23. the creator is not added to the five-person list", async () => {
+  const html = await renderHome(offlineFetch);
+
+  assert.equal(persons.length, 5);
+  assert.ok(
+    persons.every((person) => !person.displayName.includes("あっきー")),
+  );
+
+  const personCards = [...html.matchAll(/class="person-card"/g)];
+  assert.equal(personCards.length, 5);
+
+  const creatorInGrid = html
+    .slice(html.indexOf("person-grid"), html.indexOf("creator-section"))
+    .includes("あっきー");
+  assert.equal(creatorInGrid, false);
+});
+
+test("24. the creator section adds no personal-identity details", async () => {
+  const html = await renderHome(offlineFetch);
+  const creatorHtml = html.slice(
+    html.indexOf("creator-section"),
+    html.indexOf("site-footer"),
+  );
+
+  const banned = [
+    /職業/,
+    /勤務|会社|教員|教師/,
+    /家族|妻|夫|子ども/,
+    /住所|在住|居住/,
+    /年齢|歳/,
+    /電話|TEL|tel:/,
+    /mailto:|@[\w.-]+\.[a-z]{2,}/i,
+    /推し順|最推し|一番好き|俺の推し/,
+  ];
+
+  for (const pattern of banned) {
+    assert.doesNotMatch(creatorHtml, pattern, String(pattern));
+  }
+
+  const origins = new Set(
+    [...creatorHtml.matchAll(/href="(https?:\/\/[^/"]+)/g)].map(
+      (match) => match[1],
+    ),
+  );
+  assert.deepEqual([...origins].sort(), [
+    "https://github.com",
+    "https://x.com",
+  ]);
 });

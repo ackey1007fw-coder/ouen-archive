@@ -1,3 +1,4 @@
+import { CreatorMiniProfile } from "@/components/CreatorMiniProfile";
 import { MilyRealtimeBanner } from "@/components/MilyRealtimeBanner";
 import { PersonCard } from "@/components/PersonCard";
 import { PortalFeedSections } from "@/components/PortalFeedSections";
@@ -75,6 +76,8 @@ export default async function Home() {
         </section>
 
         <PortalFeedSections items={feedItems} />
+
+        <CreatorMiniProfile />
       </main>
 
       <SiteFooter />

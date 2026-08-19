@@ -744,6 +744,95 @@ a {
   line-height: 1.8;
 }
 
+.creator-section {
+  padding-block: 4.25rem 4.5rem;
+}
+
+.creator-layout {
+  display: flex;
+  justify-content: center;
+}
+
+.creator-note {
+  width: min(100%, 34rem);
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  background: rgba(255, 253, 249, 0.72);
+  padding: 2rem 1.6rem 1.75rem;
+  text-align: center;
+}
+
+.creator-note h2 {
+  margin: 0.55rem 0 1.35rem;
+  font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+}
+
+.creator-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  overflow-wrap: anywhere;
+}
+
+.creator-description {
+  max-width: 26rem;
+  margin: 0.75rem auto 0;
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+
+.creator-links {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: 0;
+}
+
+.creator-link {
+  display: inline-flex;
+  min-height: 2.75rem;
+  min-width: 5.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--white);
+  padding: 0.6rem 1.15rem;
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+}
+
+.creator-link-mark {
+  width: 0.42rem;
+  height: 0.42rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--leaf);
+}
+
+.creator-links li:nth-child(even) .creator-link-mark {
+  background: var(--apricot);
+}
+
+.creator-link:focus-visible {
+  outline: 3px solid var(--apricot);
+  outline-offset: 4px;
+}
+
 .site-footer {
   border-top: 1px solid var(--line);
   background: var(--paper-deep);
@@ -875,6 +964,12 @@ a {
     transform: translateY(-0.15rem);
     border-color: rgba(255, 255, 255, 0.32);
     background: rgba(255, 255, 255, 0.09);
+  }
+
+  .creator-link:hover {
+    border-color: rgba(73, 104, 90, 0.42);
+    text-decoration: underline;
+    text-underline-offset: 0.22rem;
   }
 }
 
