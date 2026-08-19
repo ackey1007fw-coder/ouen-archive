@@ -1,14 +1,21 @@
+import { MilyRealtimeBanner } from "@/components/MilyRealtimeBanner";
 import { PersonCard } from "@/components/PersonCard";
 import { PortalFeedSections } from "@/components/PortalFeedSections";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { persons } from "@/data/persons";
 import { mergePortalFeedItems } from "@/lib/feed-view";
+import { fetchMilyRealtimeSnapshot } from "@/lib/mily-realtime";
+import { deriveMilyRealtimeBanner } from "@/lib/mily-realtime-state";
 import { fetchPortalFeeds } from "@/lib/portal-feeds";
 
 export default async function Home() {
-  const feeds = await fetchPortalFeeds();
+  const [feeds, realtime] = await Promise.all([
+    fetchPortalFeeds(),
+    fetchMilyRealtimeSnapshot(),
+  ]);
   const feedItems = mergePortalFeedItems(feeds);
+  const realtimeBanner = deriveMilyRealtimeBanner(realtime);
 
   return (
     <div className="page-shell">
@@ -56,6 +63,8 @@ export default async function Home() {
               <PersonCard key={person.id} person={person} />
             ))}
           </div>
+
+          <MilyRealtimeBanner banner={realtimeBanner} />
         </section>
 
         <PortalFeedSections items={feedItems} />
