@@ -241,7 +241,7 @@ const PERSONS_BY_ID = {
         { label: "身長", value: "161cm" },
       ],
       tags: ["料理", "旅行", "ウォーキング", "ヨガ"],
-      // X and SHOWROOM exist but are withheld at her own request, matching the child site.
+      // X and SHOWROOM are intentionally omitted, matching the child site's publishing policy.
       links: [
         {
           label: "Instagram",

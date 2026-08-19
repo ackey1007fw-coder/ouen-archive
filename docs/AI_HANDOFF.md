@@ -172,7 +172,7 @@ MAKOは公開一次情報で生年を確認できていません。**生年を�
 - CONFIRMEDな公開リンクだけを掲載する
 - 人物ごとのリンク数は揃えない（現在 mily 7 / yukako 5 / riri 5 / chizuru 2 / mako 2）
 - 件数を揃えるために未確認URLを推測・補完しない
-- MAKOはX / SHOWROOMの本人アカウントを確認済みだが、本人希望を尊重して非掲載
+- MAKOのX / SHOWROOMは、子サイトの既存公開方針に合わせて親ポータルでも非掲載
 - MilyはFM湘南マジックウェイブのスタッフページと湘南シーサイドサークル番組ページの2本を掲載
 - MilyのSHOWROOMは安定した `room_id` URLで保存する（コンテストslugを使わない）
 - SUPPORTは現在Milyのみ1件。MISS CIRCLE 2026 公式ENTRY（`https://2026.misscircle.jp/entry/734`）

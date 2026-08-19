@@ -135,12 +135,12 @@ describe("five person profiles", () => {
     );
   });
 
-  it("respects the accounts each person asked not to publish", () => {
+  it("keeps MAKO's intentionally omitted accounts unpublished", () => {
     const makoLabels = personsById.mako.profile.links.map((link) => link.label);
-    assert.ok(!makoLabels.includes("X"), "MAKOのXは本人希望により非掲載");
+    assert.ok(!makoLabels.includes("X"), "MAKOのXは既存公開方針により非掲載");
     assert.ok(
       !makoLabels.includes("SHOWROOM"),
-      "MAKOのSHOWROOMは本人希望により非掲載",
+      "MAKOのSHOWROOMは既存公開方針により非掲載",
     );
     assert.ok(
       !personsById.mako.profile.links.some(
