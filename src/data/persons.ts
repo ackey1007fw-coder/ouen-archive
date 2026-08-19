@@ -115,16 +115,16 @@ const PERSONS_BY_ID = {
     // Source: chizuru-ito-archive/public/chizuru-ito-portrait.jpg
     image: "/portraits/chizuru-ito-portrait.jpg",
     imagePosition: "48% center",
-    // Source: chizuru-ito-archive/app/data.ts + app/page.tsx (main)
+    // Profile sources: child repo + Sophian's Contest 2024 official profile (2005/3/12)
     profile: {
       headline: "社会福祉を学びながら、モデル・メディア活動に挑戦",
       bio:
         "上智大学総合人間科学部社会福祉学科で学びながら、撮影会モデルやメディア活動に挑戦。Sophian’s Contest 2024では準グランプリを受賞しました。",
       facts: [
+        { label: "誕生日", value: "2005年3月12日" },
         { label: "学び", value: "上智大学 社会福祉学科" },
         { label: "身長", value: "172cm" },
         { label: "受賞", value: "Sophian’s Contest 2024 準グランプリ" },
-        { label: "活動", value: "モデル・メディア" },
       ],
       tags: ["社会福祉", "トーク", "モデル", "ボランティア"],
     },
@@ -139,7 +139,8 @@ const PERSONS_BY_ID = {
     // Source: mako-schedule-2026/public/images/mako-portrait.jpg
     image: "/portraits/mako-portrait.jpg",
     imagePosition: "top",
-    // Source: mako-schedule-2026/src/data/profile.ts (main,本人確認済み)
+    // Source: mako-schedule-2026/src/data/profile.ts + SHOWROOM current profile.
+    // Public sources confirm April 6; a birth year is not publicly stated, so do not infer it.
     profile: {
       headline: "日々の暮らしと好きなことを、自分らしく発信",
       bio:
