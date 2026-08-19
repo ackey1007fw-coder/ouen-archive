@@ -39,7 +39,16 @@ describe("five person profiles", () => {
     assert.equal(personsById.mako.profile.facts[0].value, "4月6日");
 
     assert.equal(personsById.yukako.profile.facts[1].value, "秋田県秋田市");
+    assert.equal(personsById.yukako.profile.facts[3].value, "スポーツ全般・歌唱");
+    assert.ok(!personsById.yukako.profile.bio.includes("2022年"));
+    assert.ok(
+      personsById.yukako.profile.facts.every((fact) => fact.label !== "血液型"),
+    );
     assert.equal(personsById.riri.profile.facts[2].value, "青山学院大学 2年");
+    assert.equal(
+      personsById.chizuru.profile.facts[1].value,
+      "上智大学 総合人間科学部 社会福祉学科",
+    );
     assert.equal(personsById.chizuru.profile.facts[2].value, "172cm");
     assert.equal(personsById.mako.profile.facts[2].value, "和歌山県");
   });
