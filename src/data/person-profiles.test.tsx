@@ -41,7 +41,10 @@ describe("five person profiles", () => {
 
     assert.match(html, /^<article/);
     assert.match(html, /<details/);
-    assert.match(html, /<summary[^>]*>.*PROFILE｜プロフィールを見る/s);
+    assert.match(
+      html,
+      /<summary[^>]*>[\s\S]*PROFILE｜プロフィールを見る/,
+    );
     assert.match(html, /俳優・タレント・モデル・ライバー/);
     assert.match(html, /1997年4月27日/);
     assert.match(html, /#ゆかJET/);
