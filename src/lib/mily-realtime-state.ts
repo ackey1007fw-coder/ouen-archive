@@ -24,6 +24,16 @@ export const LIVE_STALE_MS = 90_000;
  */
 export const RADIO_ONAIR_STALE_MS = 360_000;
 
+/**
+ * child radio SSOT. Do not trust API snapshot fields
+ * (inScheduledWindow / schedulePhase / todayScheduled) for the current
+ * window — recompute from Asia/Tokyo now.
+ * Window is [10:00, 13:00) on Sunday.
+ */
+export const RADIO_WINDOW_WEEKDAY = 0;
+export const RADIO_WINDOW_START_MINUTES = 10 * 60;
+export const RADIO_WINDOW_END_MINUTES = 13 * 60;
+
 export type MilyRealtimeBannerKind =
   | "showroom-live"
   | "radio-on-air"
@@ -40,6 +50,13 @@ export type MilyRealtimeBanner = Readonly<{
 
 const tokyoDateFmt = new Intl.DateTimeFormat("en-CA", {
   timeZone: TOKYO_TIME_ZONE,
+});
+
+const tokyoClockFmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: TOKYO_TIME_ZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
 });
 
 export function tokyoDateKey(now: number = Date.now()): string {
@@ -70,6 +87,22 @@ export function isOnAirObservationStale(
   return isObservationStale(updatedAt, now, staleMs);
 }
 
+function tokyoMinutesOfDay(now: number): number {
+  const parts = tokyoClockFmt.formatToParts(new Date(now));
+  const hour = Number(parts.find((part) => part.type === "hour")?.value);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value);
+  return hour * 60 + minute;
+}
+
+export function isCurrentRadioScheduledWindow(now: number = Date.now()): boolean {
+  const weekday = new Date(`${tokyoDateKey(now)}T12:00:00+09:00`).getUTCDay();
+  if (weekday !== RADIO_WINDOW_WEEKDAY) return false;
+  const minutes = tokyoMinutesOfDay(now);
+  return (
+    minutes >= RADIO_WINDOW_START_MINUTES && minutes < RADIO_WINDOW_END_MINUTES
+  );
+}
+
 function liveIdentityOk(live: MilyLivePayload): boolean {
   if (live.ok !== true) return false;
   if (live.roomUrl == null || live.roomUrl === "") return true;
@@ -93,7 +126,10 @@ export function isVerifiedRadioOnAir(
   if (!radio) return false;
   if (radio.ok !== true) return false;
   if (radio.onAirConfirmed !== true) return false;
-  return !isOnAirObservationStale(radio.updatedAt, now, RADIO_ONAIR_STALE_MS);
+  if (isOnAirObservationStale(radio.updatedAt, now, RADIO_ONAIR_STALE_MS)) {
+    return false;
+  }
+  return isCurrentRadioScheduledWindow(now);
 }
 
 export function nextTodayUpcomingSlot(
@@ -118,11 +154,11 @@ function showroomLiveBanner(live: MilyLivePayload): MilyRealtimeBanner {
   };
 }
 
-function radioOnAirBanner(): MilyRealtimeBanner {
+function radioOnAirBanner(radio: MilyRadioStatus): MilyRealtimeBanner {
   return {
     kind: "radio-on-air",
     stateLabel: "放送中",
-    title: "みりぃ出演ラジオが放送中です",
+    title: `みりぃの担当番組「${radio.programName}」が放送中です`,
     href: MILY_SITE_URL,
     linkLabel: "詳しく見る",
   };
@@ -147,8 +183,9 @@ function upcomingScheduleBanner(slot: MilyScheduleSlot): MilyRealtimeBanner {
  * 4. 何も表示しない
  *
  * 予定を verified live へ昇格させない。
- * ラジオは fresh な onAirConfirmed === true のときだけ。
- * 放送枠に入っているだけでは「放送中」にしない。
+ * ラジオは fresh な onAirConfirmed === true かつ
+ * 現在の Asia/Tokyo 日曜 10:00–13:00 枠内のときだけ。
+ * API の inScheduledWindow / schedulePhase だけでは「放送中」にしない。
  */
 export function deriveMilyRealtimeBanner(
   snapshot: MilyRealtimeSnapshot,
@@ -158,8 +195,8 @@ export function deriveMilyRealtimeBanner(
     return showroomLiveBanner(snapshot.live);
   }
 
-  if (isVerifiedRadioOnAir(snapshot.radio, now)) {
-    return radioOnAirBanner();
+  if (isVerifiedRadioOnAir(snapshot.radio, now) && snapshot.radio) {
+    return radioOnAirBanner(snapshot.radio);
   }
 
   const slots = snapshot.schedule?.ok === true ? snapshot.schedule.slots : [];

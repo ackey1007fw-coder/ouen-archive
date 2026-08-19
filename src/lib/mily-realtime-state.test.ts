@@ -6,6 +6,7 @@ import {
   LIVE_STALE_MS,
   RADIO_ONAIR_STALE_MS,
   deriveMilyRealtimeBanner,
+  isCurrentRadioScheduledWindow,
   isVerifiedRadioOnAir,
   isVerifiedShowroomLive,
   nextTodayUpcomingSlot,
@@ -21,9 +22,11 @@ import {
 } from "@/data/mily-links";
 
 const NOW = Date.parse("2026-08-19T12:00:00+09:00");
+const SUNDAY_NOON = Date.parse("2026-08-16T12:00:00+09:00");
 const FRESH_OBSERVED_AT = new Date(NOW - 15_000).toISOString();
+const FRESH_RADIO_AT = new Date(SUNDAY_NOON - 15_000).toISOString();
 const STALE_OBSERVED_AT = new Date(NOW - LIVE_STALE_MS).toISOString();
-const STALE_RADIO_AT = new Date(NOW - RADIO_ONAIR_STALE_MS).toISOString();
+const STALE_RADIO_AT = new Date(SUNDAY_NOON - RADIO_ONAIR_STALE_MS).toISOString();
 
 function livePayload(
   overrides: Partial<MilyLivePayload> & {
@@ -63,9 +66,23 @@ function radioPayload(
     listenUrl: "https://fm-smw.jp/radio",
     sourceUrl: "https://fm-smw.jp/",
     lastVerifiedAt: "2026-08-16",
-    updatedAt: FRESH_OBSERVED_AT,
+    updatedAt: FRESH_RADIO_AT,
     ...overrides,
   };
+}
+
+function freshOnAirRadio(
+  now: number,
+  overrides: Partial<MilyRadioStatus> = {},
+): MilyRadioStatus {
+  return radioPayload({
+    onAirConfirmed: true,
+    inScheduledWindow: true,
+    schedulePhase: "window",
+    todayScheduled: true,
+    updatedAt: new Date(now - 15_000).toISOString(),
+    ...overrides,
+  });
 }
 
 function schedulePayload(
@@ -96,6 +113,9 @@ function renderedText(
   if (!banner) return "";
   return `${banner.stateLabel} ${banner.title} ${banner.detail ?? ""} ${banner.linkLabel}`;
 }
+
+const APPEARANCE_CLAIM_COPY =
+  /みりぃ出演ラジオ|みりぃが出演中|みりぃが放送中|みりぃ出演中|みりぃがラジオ出演中/;
 
 test("1. verified SHOWROOM live shows 配信中", () => {
   const banner = deriveMilyRealtimeBanner(
@@ -168,6 +188,19 @@ test("4. SHOWROOM stale live is not LIVE", () => {
   );
 });
 
+test("same live payload is 配信中 under 90s and hidden at 90s", () => {
+  const observedAtMs = Date.parse("2026-08-19T12:00:00.000Z");
+  const observedAt = new Date(observedAtMs).toISOString();
+  const live = livePayload({ live: { state: "live", observedAt } });
+
+  const fresh = deriveMilyRealtimeBanner(snapshot({ live }), observedAtMs + 89_999);
+  const stale = deriveMilyRealtimeBanner(snapshot({ live }), observedAtMs + 90_000);
+
+  assert.equal(fresh?.kind, "showroom-live");
+  assert.equal(fresh?.stateLabel, "配信中");
+  assert.equal(stale, null);
+});
+
 test("future observedAt is treated as stale", () => {
   const banner = deriveMilyRealtimeBanner(
     snapshot({
@@ -184,28 +217,17 @@ test("future observedAt is treated as stale", () => {
 test("6. verified radio on-air shows 放送中", () => {
   const banner = deriveMilyRealtimeBanner(
     snapshot({
-      radio: radioPayload({
-        onAirConfirmed: true,
-        inScheduledWindow: true,
-        schedulePhase: "window",
-        todayScheduled: true,
-        updatedAt: FRESH_OBSERVED_AT,
-      }),
+      radio: freshOnAirRadio(SUNDAY_NOON),
     }),
-    NOW,
+    SUNDAY_NOON,
   );
 
   assert.equal(banner?.kind, "radio-on-air");
   assert.equal(banner?.stateLabel, "放送中");
-  assert.match(banner?.title ?? "", /ラジオ/);
+  assert.match(banner?.title ?? "", /担当番組/);
+  assert.match(banner?.title ?? "", /湘南シーサイドサークル/);
   assert.equal(banner?.href, MILY_SITE_URL);
-  assert.equal(
-    isVerifiedRadioOnAir(
-      radioPayload({ onAirConfirmed: true, updatedAt: FRESH_OBSERVED_AT }),
-      NOW,
-    ),
-    true,
-  );
+  assert.equal(isVerifiedRadioOnAir(freshOnAirRadio(SUNDAY_NOON), SUNDAY_NOON), true);
 });
 
 test("7. radio schedule window alone must not show 放送中", () => {
@@ -216,9 +238,10 @@ test("7. radio schedule window alone must not show 放送中", () => {
         inScheduledWindow: true,
         schedulePhase: "window",
         todayScheduled: true,
+        updatedAt: FRESH_RADIO_AT,
       }),
     }),
-    NOW,
+    SUNDAY_NOON,
   );
 
   assert.notEqual(banner?.kind, "radio-on-air");
@@ -229,8 +252,9 @@ test("7. radio schedule window alone must not show 放送中", () => {
         onAirConfirmed: null,
         inScheduledWindow: true,
         schedulePhase: "window",
+        updatedAt: FRESH_RADIO_AT,
       }),
-      NOW,
+      SUNDAY_NOON,
     ),
     false,
   );
@@ -244,9 +268,10 @@ test("7b. onAirConfirmed false inside the window is not 放送中", () => {
         inScheduledWindow: true,
         schedulePhase: "window",
         todayScheduled: true,
+        updatedAt: FRESH_RADIO_AT,
       }),
     }),
-    NOW,
+    SUNDAY_NOON,
   );
 
   assert.equal(banner, null);
@@ -262,14 +287,14 @@ test("8. stale radio on-air is not 放送中", () => {
         updatedAt: STALE_RADIO_AT,
       }),
     }),
-    NOW,
+    SUNDAY_NOON,
   );
 
   assert.equal(banner, null);
   assert.equal(
     isVerifiedRadioOnAir(
       radioPayload({ onAirConfirmed: true, updatedAt: STALE_RADIO_AT }),
-      NOW,
+      SUNDAY_NOON,
     ),
     false,
   );
@@ -279,11 +304,7 @@ test("9. SHOWROOM live wins over radio on-air", () => {
   const banner = deriveMilyRealtimeBanner(
     snapshot({
       live: livePayload({ live: { state: "live", observedAt: FRESH_OBSERVED_AT } }),
-      radio: radioPayload({
-        onAirConfirmed: true,
-        inScheduledWindow: true,
-        updatedAt: FRESH_OBSERVED_AT,
-      }),
+      radio: freshOnAirRadio(NOW),
     }),
     NOW,
   );
@@ -296,15 +317,64 @@ test("10. radio on-air shows when live is absent", () => {
   const banner = deriveMilyRealtimeBanner(
     snapshot({
       live: livePayload({ live: { state: "offline", observedAt: FRESH_OBSERVED_AT } }),
-      radio: radioPayload({
-        onAirConfirmed: true,
-        updatedAt: FRESH_OBSERVED_AT,
-      }),
+      radio: freshOnAirRadio(SUNDAY_NOON),
     }),
-    NOW,
+    SUNDAY_NOON,
   );
 
   assert.equal(banner?.kind, "radio-on-air");
+});
+
+test("radio current window boundaries use Asia/Tokyo Sunday 10:00–13:00", () => {
+  const cases: Array<[string, string, boolean]> = [
+    ["Sunday 09:59 JST", "2026-08-16T09:59:00+09:00", false],
+    ["Sunday 10:00 JST", "2026-08-16T10:00:00+09:00", true],
+    ["Sunday 12:59 JST", "2026-08-16T12:59:00+09:00", true],
+    ["Sunday 13:00 JST", "2026-08-16T13:00:00+09:00", false],
+    ["Sunday 13:01 JST", "2026-08-16T13:01:00+09:00", false],
+    ["Monday 11:00 JST", "2026-08-17T11:00:00+09:00", false],
+  ];
+
+  for (const [label, iso, expected] of cases) {
+    const now = Date.parse(iso);
+    const radio = freshOnAirRadio(now);
+    assert.equal(isCurrentRadioScheduledWindow(now), expected, label);
+    assert.equal(isVerifiedRadioOnAir(radio, now), expected, label);
+    const banner = deriveMilyRealtimeBanner(snapshot({ radio }), now);
+    if (expected) {
+      assert.equal(banner?.kind, "radio-on-air", label);
+    } else {
+      assert.notEqual(banner?.kind, "radio-on-air", label);
+    }
+  }
+});
+
+test("stale API window snapshot after 13:00 is not 放送中", () => {
+  const now = Date.parse("2026-08-16T13:00:00+09:00");
+  const radio = freshOnAirRadio(now, {
+    inScheduledWindow: true,
+    schedulePhase: "window",
+    todayScheduled: true,
+  });
+
+  assert.equal(isCurrentRadioScheduledWindow(now), false);
+  assert.equal(isVerifiedRadioOnAir(radio, now), false);
+  assert.equal(deriveMilyRealtimeBanner(snapshot({ radio }), now), null);
+});
+
+test("radio copy names the program and does not claim a current appearance", () => {
+  const banner = deriveMilyRealtimeBanner(
+    snapshot({
+      radio: freshOnAirRadio(SUNDAY_NOON),
+    }),
+    SUNDAY_NOON,
+  );
+  const text = renderedText(banner);
+
+  assert.equal(banner?.stateLabel, "放送中");
+  assert.match(banner?.title ?? "", /担当番組/);
+  assert.match(banner?.title ?? "", /湘南シーサイドサークル/);
+  assert.doesNotMatch(text, APPEARANCE_CLAIM_COPY);
 });
 
 test("11. upcoming today schedule uses ordinary wording", () => {

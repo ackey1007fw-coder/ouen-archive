@@ -9,6 +9,13 @@ import { fetchMilyRealtimeSnapshot } from "@/lib/mily-realtime";
 import { deriveMilyRealtimeBanner } from "@/lib/mily-realtime-state";
 import { fetchPortalFeeds } from "@/lib/portal-feeds";
 
+/**
+ * Request-time HTML so live / radio banners re-evaluate freshness on
+ * every visit. Keep per-fetch Data Cache (live 60 / radio 180 /
+ * schedule 300 / Portal Feed 300) instead of disabling fetch cache.
+ */
+export const revalidate = 0;
+
 export default async function Home() {
   const [feeds, realtime] = await Promise.all([
     fetchPortalFeeds(),

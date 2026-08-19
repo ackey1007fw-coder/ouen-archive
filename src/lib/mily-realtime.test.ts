@@ -219,9 +219,12 @@ test("requests use isolated revalidate windows", async () => {
     logger: silentLogger,
   });
 
-  assert.equal(received.get(MILY_LIVE_URL), MILY_LIVE_REVALIDATE_SECONDS);
-  assert.equal(received.get(MILY_RADIO_URL), MILY_RADIO_REVALIDATE_SECONDS);
-  assert.equal(received.get(MILY_SCHEDULE_URL), MILY_SCHEDULE_REVALIDATE_SECONDS);
+  assert.equal(MILY_LIVE_REVALIDATE_SECONDS, 60);
+  assert.equal(MILY_RADIO_REVALIDATE_SECONDS, 180);
+  assert.equal(MILY_SCHEDULE_REVALIDATE_SECONDS, 300);
+  assert.equal(received.get(MILY_LIVE_URL), 60);
+  assert.equal(received.get(MILY_RADIO_URL), 180);
+  assert.equal(received.get(MILY_SCHEDULE_URL), 300);
 });
 
 test("all three sources failing still returns a snapshot", async () => {

@@ -197,9 +197,7 @@ test("requests feeds with a timeout signal and a 300-second revalidate", async (
     sources: [source],
   });
 
+  assert.equal(PORTAL_FEED_REVALIDATE_SECONDS, 300);
   assert.ok(receivedInit?.signal instanceof AbortSignal);
-  assert.equal(
-    receivedInit?.next?.revalidate,
-    PORTAL_FEED_REVALIDATE_SECONDS,
-  );
+  assert.equal(receivedInit?.next?.revalidate, 300);
 });

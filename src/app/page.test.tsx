@@ -1,17 +1,24 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import Home from "@/app/page";
+import Home, { revalidate as pageRevalidate } from "@/app/page";
 import { PortalFeedSections } from "@/components/PortalFeedSections";
 import { PERSON_ORDER } from "@/data/persons";
 import { MILY_SHOWROOM_URL } from "@/data/mily-links";
 import type { PortalFeedItem } from "@/lib/feed-schema";
 import {
+  MILY_LIVE_REVALIDATE_SECONDS,
   MILY_LIVE_URL,
+  MILY_RADIO_REVALIDATE_SECONDS,
   MILY_RADIO_URL,
+  MILY_SCHEDULE_REVALIDATE_SECONDS,
   MILY_SCHEDULE_URL,
 } from "@/lib/mily-realtime";
+import { LIVE_STALE_MS } from "@/lib/mily-realtime-state";
+import { PORTAL_FEED_REVALIDATE_SECONDS } from "@/lib/portal-feeds";
 
 const NOW_ISO = new Date(Date.now() - 10_000).toISOString();
 
@@ -96,6 +103,17 @@ async function renderHome(fetchImpl: typeof fetch): Promise<string> {
     console.warn = originalWarn;
   }
 }
+
+test("page module exports revalidate === 0", () => {
+  assert.equal(pageRevalidate, 0);
+});
+
+test("page re-evaluates the live banner at request time without disabling fetch cache", () => {
+  const source = readFileSync(path.join(process.cwd(), "src/app/page.tsx"), "utf8");
+  assert.match(source, /export const revalidate = 0/);
+  assert.doesNotMatch(source, /export const dynamic/);
+  assert.match(source, /deriveMilyRealtimeBanner\(\s*realtime/);
+});
 
 test("the full page renders when all five feeds fail", async () => {
   const html = await renderHome(async () => {
@@ -198,6 +216,67 @@ test("verified live banner appears between person cards and TODAY", async () => 
   assert.ok(cards < banner && banner < latest);
   assert.match(html, /配信中/);
   assert.match(html, /みりぃがSHOWROOMで配信しています/);
+});
+
+test("same live payload is re-evaluated at request time instead of ISR HTML", async () => {
+  const observedAtMs = Date.parse("2026-08-19T12:00:00.000Z");
+  const observedAt = new Date(observedAtMs).toISOString();
+  const live = {
+    ...validLive,
+    live: { ...validLive.live, state: "live" as const, observedAt },
+  };
+
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    const bodies = realtimeBodies({ live });
+    const match = bodies[url as keyof typeof bodies];
+    if (match) return jsonResponse(match.body, 200, match.url);
+    throw new Error("feed offline");
+  };
+
+  const originalNow = Date.now;
+  try {
+    Date.now = () => observedAtMs + 10_000;
+    const freshHtml = await renderHome(fetchImpl);
+    assert.match(freshHtml, /配信中/);
+    assert.match(freshHtml, /realtime-banner--showroom-live/);
+
+    Date.now = () => observedAtMs + LIVE_STALE_MS;
+    const staleHtml = await renderHome(fetchImpl);
+    assert.doesNotMatch(staleHtml, /配信中/);
+    assert.doesNotMatch(staleHtml, /realtime-banner--showroom-live/);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test("page fetch keeps isolated data-cache revalidate windows", async () => {
+  const received = new Map<string, number | undefined>();
+
+  await renderHome(async (input, init) => {
+    const url = String(input);
+    const nextRevalidate = (init as { next?: { revalidate?: number } } | undefined)
+      ?.next?.revalidate;
+    received.set(url, nextRevalidate);
+    const bodies = realtimeBodies();
+    const match = bodies[url as keyof typeof bodies];
+    if (match) return jsonResponse(match.body, 200, match.url);
+    throw new Error("feed offline");
+  });
+
+  assert.equal(received.get(MILY_LIVE_URL), 60);
+  assert.equal(received.get(MILY_RADIO_URL), 180);
+  assert.equal(received.get(MILY_SCHEDULE_URL), 300);
+  assert.equal(MILY_LIVE_REVALIDATE_SECONDS, 60);
+  assert.equal(MILY_RADIO_REVALIDATE_SECONDS, 180);
+  assert.equal(MILY_SCHEDULE_REVALIDATE_SECONDS, 300);
+  assert.equal(PORTAL_FEED_REVALIDATE_SECONDS, 300);
+
+  for (const [url, revalidateSeconds] of received) {
+    if (url.includes("portal-feed.json")) {
+      assert.equal(revalidateSeconds, 300, url);
+    }
+  }
 });
 
 test("17. existing five person cards stay in fixed order", async () => {

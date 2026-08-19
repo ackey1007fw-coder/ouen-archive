@@ -24,7 +24,7 @@ const liveBanner: Banner = {
 const radioBanner: Banner = {
   kind: "radio-on-air",
   stateLabel: "放送中",
-  title: "みりぃ出演ラジオが放送中です",
+  title: "みりぃの担当番組「湘南シーサイドサークル」が放送中です",
   href: MILY_SITE_URL,
   linkLabel: "詳しく見る",
 };
@@ -66,6 +66,12 @@ test("radio and upcoming do not use the live class", () => {
   );
 
   assert.match(radio, /放送中/);
+  assert.match(radio, /担当番組/);
+  assert.match(radio, /湘南シーサイドサークル/);
+  assert.doesNotMatch(
+    radio,
+    /みりぃ出演ラジオ|みりぃが出演中|みりぃが放送中|みりぃ出演中|みりぃがラジオ出演中/,
+  );
   assert.doesNotMatch(radio, /realtime-banner--showroom-live/);
   assert.match(upcoming, /このあと/);
   assert.doesNotMatch(upcoming, /配信中|LIVE NOW|ON AIR/);
