@@ -21,7 +21,7 @@ export function PersonCard({ person }: { person: Person }) {
         <p className="person-alternate-name">{person.alternateName}</p>
         <p className="person-description">{person.profile.headline}</p>
 
-        <details className="group mt-5 border-t border-[color:var(--line)] pt-4">
+        <details className="group mt-5 mb-3 border-t border-[color:var(--line)] pt-4">
           <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm font-bold text-[color:var(--leaf)] underline decoration-[color:var(--line)] underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-[color:var(--apricot)]">
             <span>PROFILE｜プロフィールを見る</span>
             <span

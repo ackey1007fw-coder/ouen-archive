@@ -285,13 +285,15 @@ a {
 .person-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  /* Keep each card at its own height so opening one profile does not
+     stretch the closed neighbours into a tall, empty column. */
+  align-items: start;
   gap: 1.5rem;
 }
 
 .person-card {
   display: flex;
   min-width: 0;
-  height: 100%;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--line);
