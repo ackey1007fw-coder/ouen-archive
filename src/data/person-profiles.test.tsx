@@ -23,14 +23,24 @@ describe("five person profiles", () => {
         person.profile.facts.every((fact) => fact.label !== "年齢"),
         `${person.id}: 年齢ではなく誕生日など長期運用できる事実を使う`,
       );
+      assert.equal(
+        person.profile.facts[0]?.label,
+        "誕生日",
+        `${person.id}: 5人全員のプロフィール先頭に誕生日を掲載する`,
+      );
     }
   });
 
-  it("uses the child-site source facts selected for each person", () => {
+  it("uses the verified source facts selected for each person", () => {
     assert.equal(personsById.mily.profile.facts[0].value, "2005年8月2日");
+    assert.equal(personsById.yukako.profile.facts[0].value, "1997年4月27日");
+    assert.equal(personsById.riri.profile.facts[0].value, "2006年6月24日");
+    assert.equal(personsById.chizuru.profile.facts[0].value, "2005年3月12日");
+    assert.equal(personsById.mako.profile.facts[0].value, "4月6日");
+
     assert.equal(personsById.yukako.profile.facts[1].value, "秋田県秋田市");
     assert.equal(personsById.riri.profile.facts[2].value, "青山学院大学 2年");
-    assert.equal(personsById.chizuru.profile.facts[1].value, "172cm");
+    assert.equal(personsById.chizuru.profile.facts[2].value, "172cm");
     assert.equal(personsById.mako.profile.facts[2].value, "和歌山県");
   });
 
