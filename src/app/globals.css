@@ -378,6 +378,95 @@ a {
   transition: transform 180ms ease;
 }
 
+.person-links-heading {
+  margin: 1.35rem 0 0;
+  color: var(--leaf);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.person-link-list,
+.person-support-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.person-link-list > li,
+.person-support-list > li {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.person-support-list > li {
+  width: 100%;
+}
+
+.person-link-pill,
+.person-support-link {
+  display: inline-flex;
+  /* Keep a 44px tap target without shrinking the label text. */
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: 100%;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.5;
+  transition:
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.person-link-pill {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  padding: 0.5rem 0.9rem;
+  color: var(--ink);
+}
+
+/* Support links read as "go and support", so they get a slightly warmer frame
+   than the SNS pills — deliberately lighter than the person card's own CTA. */
+.person-support-link {
+  justify-content: space-between;
+  width: 100%;
+  border: 1px solid var(--apricot);
+  border-radius: 0.95rem;
+  background: var(--apricot-light);
+  padding: 0.65rem 0.95rem;
+  color: #74412d;
+}
+
+.person-link-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  /* Underline plus the ↗ marker, so the affordance is never colour-only. */
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 0.2rem;
+}
+
+.person-support-link .person-link-label {
+  text-decoration-color: rgba(116, 65, 45, 0.45);
+}
+
+.person-link-pill > span[aria-hidden],
+.person-support-link > span[aria-hidden] {
+  flex-shrink: 0;
+}
+
+.person-link-pill:focus-visible,
+.person-support-link:focus-visible {
+  outline: 3px solid var(--apricot);
+  outline-offset: 2px;
+}
+
 .realtime-banner {
   margin-top: 1.75rem;
 }
@@ -946,6 +1035,15 @@ a {
 
   .person-card:hover .person-cta span {
     transform: translateX(0.2rem);
+  }
+
+  .person-link-pill:hover {
+    border-color: rgba(73, 104, 90, 0.42);
+    background: var(--white);
+  }
+
+  .person-support-link:hover {
+    border-color: rgba(116, 65, 45, 0.55);
   }
 
   .footer-link:hover,
