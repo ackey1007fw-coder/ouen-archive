@@ -66,16 +66,16 @@ const PERSONS_BY_ID = {
     // Source: yukako-schedule-2026/public/images/yukako-portrait.jpg
     image: "/portraits/yukako-portrait.jpg",
     imagePosition: "top",
-    // Source: yukako-schedule-2026/src/data/profile.ts (main)
+    // Profile facts cross-checked against public first-party / organizer sources.
     profile: {
       headline: "俳優・タレント・モデル・ライバー",
       bio:
-        "秋田で公務員として働いた後、2022年に退職・上京して俳優活動を本格化。舞台・映像・配信に加え、#ゆかJET のプロデュースにも取り組んでいます。",
+        "秋田で公務員として働いた後、上京して俳優活動を本格化。舞台・映像・配信に加え、#ゆかJET のプロデュースにも取り組んでいます。",
       facts: [
         { label: "誕生日", value: "1997年4月27日" },
         { label: "出身", value: "秋田県秋田市" },
         { label: "身長", value: "161cm" },
-        { label: "血液型", value: "AB型" },
+        { label: "特技", value: "スポーツ全般・歌唱" },
       ],
       tags: ["スポーツ", "歌唱", "料理", "写真撮影"],
     },
@@ -122,7 +122,10 @@ const PERSONS_BY_ID = {
         "上智大学総合人間科学部社会福祉学科で学びながら、撮影会モデルやメディア活動に挑戦。Sophian’s Contest 2024では準グランプリを受賞しました。",
       facts: [
         { label: "誕生日", value: "2005年3月12日" },
-        { label: "学び", value: "上智大学 社会福祉学科" },
+        {
+          label: "学び",
+          value: "上智大学 総合人間科学部 社会福祉学科",
+        },
         { label: "身長", value: "172cm" },
         { label: "受賞", value: "Sophian’s Contest 2024 準グランプリ" },
       ],
