@@ -105,8 +105,8 @@ PR #3でverified realtime統合済み。
 - PR #5 — 5人の展開式プロフィールを人物カードへ追加
   - https://github.com/ackey1007fw-coder/ouen-archive/pull/5
   - squash merge commit: `d8aa7e8ca98e09b0618872e309d83e1d75dd0816`
-- Phase 7 — PROFILE内にLINKS｜SNS・配信 / SUPPORT｜応援・投票を追加
-  - branch: `feat/profile-direct-links-support`
+- PR #8 — PROFILE内にLINKS｜SNS・配信 / SUPPORT｜応援・投票を追加
+  - https://github.com/ackey1007fw-coder/ouen-archive/pull/8
 
 ### Child → Parent の戻り導線
 
