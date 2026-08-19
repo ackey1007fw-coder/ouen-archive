@@ -67,6 +67,7 @@ const PERSONS_BY_ID = {
     image: "/portraits/yukako-portrait.jpg",
     imagePosition: "top",
     // Public profile source audit: SHOWROOM / CLOUDCASTING / Miss Grand Japan related public pages.
+    // Blood type AB is owner-confirmed and retained intentionally even though the audit did not find it on current first-party pages.
     profile: {
       headline: "俳優・タレント・モデル・ライバー",
       bio:
@@ -75,7 +76,7 @@ const PERSONS_BY_ID = {
         { label: "誕生日", value: "1997年4月27日" },
         { label: "出身", value: "秋田県秋田市" },
         { label: "身長", value: "161cm" },
-        { label: "特技", value: "スポーツ全般・歌唱" },
+        { label: "血液型", value: "AB型" },
       ],
       tags: ["スポーツ", "歌唱", "料理", "写真撮影"],
     },
