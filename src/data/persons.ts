@@ -42,7 +42,7 @@ const PERSONS_BY_ID = {
     // Source: mily-fan-site/public/media/drive-gallery/mily-b02-p46-1600.jpg
     image: "/portraits/mily-b02-p46-1600.jpg",
     imagePosition: "50% 22%",
-    // Source: mily-fan-site/src/data/profile.ts (main, verified 2026-08-18)
+    // Public profile source audit: MISS CIRCLE / SHOWROOM /本人公開プロフィール.
     profile: {
       headline: "ラジオ・SHOWROOM・大学生コンテストで活動",
       bio:
@@ -66,7 +66,7 @@ const PERSONS_BY_ID = {
     // Source: yukako-schedule-2026/public/images/yukako-portrait.jpg
     image: "/portraits/yukako-portrait.jpg",
     imagePosition: "top",
-    // Profile facts cross-checked against public first-party / organizer sources.
+    // Public profile source audit: SHOWROOM / CLOUDCASTING / Miss Grand Japan related public pages.
     profile: {
       headline: "俳優・タレント・モデル・ライバー",
       bio:
@@ -90,7 +90,7 @@ const PERSONS_BY_ID = {
     // Source: riri-schedule-2026/public/images/riri-portrait.jpg
     image: "/portraits/riri-portrait.jpg",
     imagePosition: "top",
-    // Source: riri-schedule-2026/src/data/profile.ts (main)
+    // Public profile source audit: SHOWROOM /本人Instagram・X / FRECAMP official.
     profile: {
       headline: "世界中の人の心を動かす役者を目指して活動",
       bio:
@@ -115,7 +115,7 @@ const PERSONS_BY_ID = {
     // Source: chizuru-ito-archive/public/chizuru-ito-portrait.jpg
     image: "/portraits/chizuru-ito-portrait.jpg",
     imagePosition: "48% center",
-    // Profile sources: child repo + Sophian's Contest 2024 official profile (2005/3/12)
+    // Public profile source audit: Sophian's Contest 2024 / JJ / public model profiles.
     profile: {
       headline: "社会福祉を学びながら、モデル・メディア活動に挑戦",
       bio:
@@ -142,8 +142,7 @@ const PERSONS_BY_ID = {
     // Source: mako-schedule-2026/public/images/mako-portrait.jpg
     image: "/portraits/mako-portrait.jpg",
     imagePosition: "top",
-    // Source: mako-schedule-2026/src/data/profile.ts + SHOWROOM current profile.
-    // Public sources confirm April 6; a birth year is not publicly stated, so do not infer it.
+    // Public profile source audit: current SHOWROOM profile. Birth year is not public; do not infer it.
     profile: {
       headline: "日々の暮らしと好きなことを、自分らしく発信",
       bio:
