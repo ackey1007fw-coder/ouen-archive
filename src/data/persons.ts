@@ -77,4 +77,6 @@ const PERSONS_BY_ID = {
   },
 } satisfies Record<PersonId, Person>;
 
-export const persons = PERSON_ORDER.map((personId) => PERSONS_BY_ID[personId]);
+export const personsById: Readonly<Record<PersonId, Person>> = PERSONS_BY_ID;
+
+export const persons = PERSON_ORDER.map((personId) => personsById[personId]);
