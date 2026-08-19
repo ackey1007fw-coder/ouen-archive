@@ -60,6 +60,10 @@ ParentはNext.js App Router / TypeScript / pnpmで構成されています。主
 - Mily verified realtime banner
 - 制作者の控えめなmini profile
 - 5人それぞれの展開式PROFILE
+- PROFILE内の `LINKS｜SNS・配信`（本人SNS / SHOWROOM / MixChannel / ラジオ等への直接導線）
+- PROFILE内の `SUPPORT｜応援・投票`（該当人物のみ表示。現在はMilyのみ）
+
+親ポータルのPROFILEを開けば、応援サイトを経由せずに本人のSNS・配信・ラジオへ移動でき、Milyについては MISS CIRCLE 2026 公式ENTRYからそのまま応援へ進めます。
 
 ### Portal Feed
 
@@ -101,6 +105,8 @@ PR #3でverified realtime統合済み。
 - PR #5 — 5人の展開式プロフィールを人物カードへ追加
   - https://github.com/ackey1007fw-coder/ouen-archive/pull/5
   - squash merge commit: `d8aa7e8ca98e09b0618872e309d83e1d75dd0816`
+- PR #8 — PROFILE内にLINKS｜SNS・配信 / SUPPORT｜応援・投票を追加
+  - https://github.com/ackey1007fw-coder/ouen-archive/pull/8
 
 ### Child → Parent の戻り導線
 
@@ -133,10 +139,13 @@ Chizuru #11は最小変更として **トップページFooterのみ** に戻り
 - `bio`
 - `facts` 4件
 - `tags` 4件
+- `links`（SNS・配信・番組公式ページ）
+- `supportLinks`（応援・投票導線。0件可）
 
 UI:
 - card outer: `<article>`
 - `PROFILE｜プロフィールを見る` は `<details><summary>`
+- `LINKS｜SNS・配信` と `SUPPORT｜応援・投票` はいずれも `<details>` 内部
 - `応援サイトへ` は独立したCTA
 - JSなしで開閉可能
 - 44px相当のtap target / focus-visible
@@ -157,6 +166,18 @@ PROFILEを開いたカードだけが伸び、同じ行の閉じたカードが�
 | MAKO | `4月6日` |
 
 MAKOは公開一次情報で生年を確認できていません。**生年を推測して追加しないでください。**
+
+### LINKS / SUPPORT の掲載方針
+
+- CONFIRMEDな公開リンクだけを掲載する
+- 人物ごとのリンク数は揃えない（現在 mily 7 / yukako 5 / riri 5 / chizuru 2 / mako 2）
+- 件数を揃えるために未確認URLを推測・補完しない
+- MAKOのX / SHOWROOMは、子サイトの既存公開方針に合わせて親ポータルでも非掲載
+- MilyはFM湘南マジックウェイブのスタッフページと湘南シーサイドサークル番組ページの2本を掲載
+- MilyのSHOWROOMは安定した `room_id` URLで保存する（コンテストslugを使わない）
+- SUPPORTは現在Milyのみ1件。MISS CIRCLE 2026 公式ENTRY（`https://2026.misscircle.jp/entry/734`）
+- SUPPORTラベルは `MISS CIRCLE 2026｜公式プロフィール・投票`。「投票受付中」等の期限依存表現は静的UIへ書かない
+- 外部リンクは `target="_blank"` + `rel="noopener noreferrer"`。`応援サイトへ` CTAは従来どおり同一タブ
 
 ### 現在のprofile要点
 

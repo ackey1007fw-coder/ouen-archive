@@ -66,6 +66,48 @@ export function PersonCard({ person }: { person: Person }) {
                 </li>
               ))}
             </ul>
+
+            <nav aria-label={`${person.displayName}のSNS・配信リンク`}>
+              <h4 className="person-links-heading">LINKS｜SNS・配信</h4>
+              <ul className="person-link-list">
+                {person.profile.links.map((link) => (
+                  <li key={link.url}>
+                    <a
+                      className="person-link-pill"
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`${link.label}（外部サイト・新しいタブで開く）`}
+                    >
+                      <span className="person-link-label">{link.label}</span>
+                      <span aria-hidden="true">↗</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+
+            {person.profile.supportLinks.length > 0 && (
+              <nav aria-label={`${person.displayName}の応援・投票リンク`}>
+                <h4 className="person-links-heading">SUPPORT｜応援・投票</h4>
+                <ul className="person-support-list">
+                  {person.profile.supportLinks.map((link) => (
+                    <li key={link.url}>
+                      <a
+                        className="person-support-link"
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={`${link.label}（外部サイト・新しいタブで開く）`}
+                      >
+                        <span className="person-link-label">{link.label}</span>
+                        <span aria-hidden="true">↗</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            )}
           </div>
         </details>
 

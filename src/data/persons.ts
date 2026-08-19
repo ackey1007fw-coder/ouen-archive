@@ -13,11 +13,29 @@ export type PersonProfileFact = Readonly<{
   value: string;
 }>;
 
+/**
+ * A confirmed public URL for the person: their own SNS, streaming rooms, or an
+ * official programme page. Only links verified as the person's own (or an
+ * official page about them) belong here — never a guessed or probable URL.
+ */
+export type PersonProfileLink = Readonly<{
+  label: string;
+  url: string;
+}>;
+
 export type PersonProfile = Readonly<{
   headline: string;
   bio: string;
   facts: readonly PersonProfileFact[];
   tags: readonly string[];
+  /** SNS / streaming / official programme pages for following the person. */
+  links: readonly PersonProfileLink[];
+  /**
+   * Pages that lead directly to supporting the person, such as an official
+   * contest entry. Kept separate from `links` so the UI can label the intent,
+   * and left empty for everyone who has no confirmed support page.
+   */
+  supportLinks: readonly PersonProfileLink[];
 }>;
 
 export type Person = Readonly<{
@@ -54,6 +72,35 @@ const PERSONS_BY_ID = {
         { label: "特技", value: "篠笛" },
       ],
       tags: ["ラジオ", "SHOWROOM", "英会話", "ENFP"],
+      // SHOWROOM uses the stable room_id URL so a contest slug change cannot break it.
+      links: [
+        { label: "X", url: "https://x.com/Mily_chan36" },
+        {
+          label: "Instagram",
+          url: "https://www.instagram.com/mily_chan36/",
+        },
+        { label: "TikTok", url: "https://www.tiktok.com/@mily_chan36" },
+        {
+          label: "SHOWROOM",
+          url: "https://www.showroom-live.com/room/profile?room_id=573253",
+        },
+        { label: "MixChannel", url: "https://mixch.tv/u/10114673" },
+        {
+          label: "FM湘南マジックウェイブ",
+          url: "https://fm-smw.jp/staff/mily%EF%BC%88%E3%83%9F%E3%83%AA%E3%83%BC%EF%BC%89",
+        },
+        {
+          label: "湘南シーサイドサークル",
+          url: "https://fm-smw.jp/program/%E3%80%8E-%E6%B9%98%E5%8D%97%E3%82%B7%E3%83%BC%E3%82%B5%E3%82%A4%E3%83%89%E3%82%B5%E3%83%BC%E3%82%AF%E3%83%AB-%E3%80%8F%E3%80%80%EF%BC%83ssc",
+        },
+      ],
+      // The label stays meaningful after voting closes, so no deadline wording here.
+      supportLinks: [
+        {
+          label: "MISS CIRCLE 2026｜公式プロフィール・投票",
+          url: "https://2026.misscircle.jp/entry/734",
+        },
+      ],
     },
   },
   yukako: {
@@ -79,6 +126,18 @@ const PERSONS_BY_ID = {
         { label: "血液型", value: "AB型" },
       ],
       tags: ["スポーツ", "歌唱", "料理", "写真撮影"],
+      // The #ゆかJET produce account is listed separately from the personal X.
+      links: [
+        { label: "X", url: "https://x.com/mokoopy" },
+        { label: "Instagram", url: "https://www.instagram.com/yoppy_777/" },
+        { label: "TikTok", url: "https://www.tiktok.com/@yukakoyoshii" },
+        {
+          label: "SHOWROOM",
+          url: "https://www.showroom-live.com/room/profile?room_id=347571",
+        },
+        { label: "X（#ゆかJET）", url: "https://x.com/yukako_produce" },
+      ],
+      supportLinks: [],
     },
   },
   riri: {
@@ -103,6 +162,24 @@ const PERSONS_BY_ID = {
         { label: "身長", value: "163cm" },
       ],
       tags: ["数独", "映画鑑賞", "スポーツ", "お菓子作り"],
+      // Current accounts only: the former X handle and the former SHOWROOM slug are not listed.
+      links: [
+        { label: "X", url: "https://x.com/frecam2025_0306" },
+        {
+          label: "Instagram",
+          url: "https://www.instagram.com/__ririri__24/",
+        },
+        {
+          label: "Threads",
+          url: "https://www.threads.com/@__ririri__24",
+        },
+        { label: "TikTok", url: "https://www.tiktok.com/@ririchannel__" },
+        {
+          label: "SHOWROOM",
+          url: "https://www.showroom-live.com/room/profile?room_id=550336",
+        },
+      ],
+      supportLinks: [],
     },
   },
   chizuru: {
@@ -131,6 +208,15 @@ const PERSONS_BY_ID = {
         { label: "受賞", value: "Sophian’s Contest 2024 準グランプリ" },
       ],
       tags: ["社会福祉", "トーク", "モデル", "ボランティア"],
+      // Only the two confirmed accounts. Do not add unverified TikTok / SHOWROOM / YouTube.
+      links: [
+        { label: "X", url: "https://x.com/chizuruito_" },
+        {
+          label: "Instagram",
+          url: "https://www.instagram.com/chizuru.ito_/",
+        },
+      ],
+      supportLinks: [],
     },
   },
   mako: {
@@ -155,6 +241,15 @@ const PERSONS_BY_ID = {
         { label: "身長", value: "161cm" },
       ],
       tags: ["料理", "旅行", "ウォーキング", "ヨガ"],
+      // X and SHOWROOM are intentionally omitted, matching the child site's publishing policy.
+      links: [
+        {
+          label: "Instagram",
+          url: "https://www.instagram.com/mako_hawaiian/",
+        },
+        { label: "TikTok", url: "https://www.tiktok.com/@maaako0406" },
+      ],
+      supportLinks: [],
     },
   },
 } satisfies Record<PersonId, Person>;
