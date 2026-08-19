@@ -16,6 +16,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 2. `docs/DECISION_LOG.md` — 重要判断とその理由
 3. 変更対象のコードとテスト
 
+Project Memoryの作り方・更新方法を確認する必要がある場合は、`docs/AI_PROJECT_MEMORY_SKILL.md` を再利用可能な運用スキルとして参照してください。
+
 ## Source-of-truth priority
 
 矛盾した場合の基本順位:
