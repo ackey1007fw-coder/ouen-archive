@@ -39,11 +39,9 @@ describe("five person profiles", () => {
     assert.equal(personsById.mako.profile.facts[0].value, "4月6日");
 
     assert.equal(personsById.yukako.profile.facts[1].value, "秋田県秋田市");
-    assert.equal(personsById.yukako.profile.facts[3].value, "スポーツ全般・歌唱");
+    assert.equal(personsById.yukako.profile.facts[3].label, "血液型");
+    assert.equal(personsById.yukako.profile.facts[3].value, "AB型");
     assert.ok(!personsById.yukako.profile.bio.includes("2022年"));
-    assert.ok(
-      personsById.yukako.profile.facts.every((fact) => fact.label !== "血液型"),
-    );
     assert.equal(personsById.riri.profile.facts[2].value, "青山学院大学 2年");
     assert.equal(
       personsById.chizuru.profile.facts[1].value,
@@ -66,6 +64,7 @@ describe("five person profiles", () => {
     );
     assert.match(html, /俳優・タレント・モデル・ライバー/);
     assert.match(html, /1997年4月27日/);
+    assert.match(html, /AB型/);
     assert.match(html, /#ゆかJET/);
     assert.match(
       html,
