@@ -62,6 +62,7 @@ ParentはNext.js App Router / TypeScript / pnpmで構成されています。主
 - 5人それぞれの展開式PROFILE
 - PROFILE内の `LINKS｜SNS・配信`（本人SNS / SHOWROOM / MixChannel / ラジオ等への直接導線）
 - PROFILE内の `SUPPORT｜応援・投票`（該当人物のみ表示。現在はMilyのみ）
+- 4人のポートレートを使ったOGPシェア画像（`src/app/opengraph-image.tsx`）
 
 親ポータルのPROFILEを開けば、応援サイトを経由せずに本人のSNS・配信・ラジオへ移動でき、Milyについては MISS CIRCLE 2026 公式ENTRYからそのまま応援へ進めます。
 
@@ -222,6 +223,28 @@ bioは `2022年に退職` のような弱い年次断定を避け、現在は「
 
 ---
 
+## 4-2. OGPシェア画像
+
+`src/app/opengraph-image.tsx` がNext.js App Routerのfile-based metadata規約で `1200x630` のPNGを生成します。`layout.tsx` 側に `openGraph.images` を手書きする必要はありません（Nextが `og:image` / `twitter:image` / alt / 寸法を自動注入します）。
+
+構成:
+
+- 上段 420px … 4人のポートレートを横並び（`mily 360 / yukako 290 / riri 280 / chizuru 270`）
+- 中央 6px … コーラル＋グリーンのアクセントルール
+- 下段 204px … 濃色バンドに `応援アーカイブ`（86px）と `夢と活動の記録` / `FAN-MADE SUPPORT PORTAL`
+
+掲載人物・タイル幅・キャンバス寸法は `src/lib/og-portraits.ts` がSSOTで、`src/lib/og-portraits.test.ts` が回帰テストしています。MAKOをシェア画像へ入れない判断の理由は `docs/DECISION_LOG.md`（2026-08-20）を参照してください。**ポータル本体の人物カードは従来どおり5人・固定順・同等weightのままです。**
+
+素材は `assets/og-portraits/*.jpg`。`public/portraits/` の既存ポートレートを顔位置に合わせてトリミングしただけの派生ファイルで、元ファイルは変更していません。`ImageResponse` は `public/` を読めないため、ビルド時に `fs` で読んでdata URIとして埋め込みます。
+
+注意:
+
+- `ImageResponse` のバンドル上限は500KB（画像込み）。ポートレートを差し替えるときは合計サイズを確認する
+- 既定フォールバックフォントに日本語boldが無いため `fontWeight: 700` は効かない。視認性は文字サイズで担保する
+- 顔のAI生成・合成・レタッチはしない。トリミングのみ
+
+---
+
 ## 5. AI分業の基本形
 
 今回うまく機能した分業です。絶対ルールではありませんが、今後の基本形として扱います。
@@ -285,6 +308,7 @@ bioは `2022年に退職` のような弱い年次断定を避け、現在は「
 3. Chizuruの記事ページFooterにも親ポータル戻り導線を出すかは未決定
 4. 新年度にMily / Ririの大学学年を再確認
 5. 大きなphaseをmergeしたら、この `AI_HANDOFF.md` を更新する
+6. OGP差し替えをmerge後、本番URLでX / Slack等のカードキャッシュが更新されたか確認する
 
 このリストは完了したら更新・削除してください。
 
