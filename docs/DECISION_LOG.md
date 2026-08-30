@@ -333,3 +333,33 @@ MAKO非掲載とMilyタイルの拡大は、いずれもオーナーの明示指
 - `assets/` に置いているのは、この画像がビルド時にしか読まれないため。`ImageResponse` は `public/` を読めないので `fs` + data URIで埋め込む。
 - レイアウト定数と掲載人物は `src/lib/og-portraits.ts` に切り出し、`src/lib/og-portraits.test.ts` で「MAKOが入っていないこと」「固定人物順であること」を回帰テストしている。
 - `next/og` の既定フォールバックフォントには日本語のboldが無く、`fontWeight: 700` は太字にならない。太さではなく文字サイズ（86px）で視認性を確保している。
+
+---
+
+## 2026-08-30 — トップ直下に期限連動のSUPPORT NOWを置く
+
+**Decision**
+
+ポータルの第一目的を「5サイトの紹介」だけでなく、「今この瞬間に何を応援できるか分かること」へ広げる。hero直下に `SUPPORT NOW` を置き、次を最大4件表示する。
+
+1. 公開確認済みの期間中campaign
+2. 30日以内に始まるcampaign
+3. child Portal Feedにある各人物の次の `schedule | event`（1人1件）
+
+期間つきcampaignは開始・終了日時で自動表示し、期限後は自動で外す。verified realtime bannerもSUPPORT NOW内へ移し、人物カードより先に表示する。
+
+**Reason**
+
+従来の `TODAY` / `LATEST UPDATES` は情報の集約として機能する一方、投票・審査・次の舞台など「今取れる行動」が時系列情報に埋もれていたため。child siteをSSOTとして使う既存設計を保ちながら、親ポータルを応援行動の入口として明確にする。
+
+**Relationship to 2026-08-18 「5人は固定順・同等weight」**
+
+人物カードは従来どおり5人・固定順・同等weightのまま。SUPPORT NOWへの掲載は人気・序列ではなく、確認済みの期限と次の予定だけで決まる一時的な機能表示である。
+
+**Do not**
+
+- news本文の言葉から「投票中」「受付中」を推測しない
+- 期限が切れたcampaignを表示し続けない
+- 未確認の開始・終了日時や応援URLを補完しない
+- このPhaseのついでにPortal Feed contractを変更しない
+- SUPPORT NOWの一時的な掲載順を人物カードの固定順へ波及させない

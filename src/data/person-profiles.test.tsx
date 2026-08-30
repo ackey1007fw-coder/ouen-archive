@@ -175,7 +175,7 @@ describe("five person profiles", () => {
     assert.ok(detailsBody.includes("https://mixch.tv/u/10114673"));
 
     // The support-site CTA stays a separate control outside <details>.
-    assert.ok(afterDetails.includes("応援サイトへ"));
+    assert.ok(afterDetails.includes("ファンサイトを見る"));
     assert.ok(afterDetails.includes("https://mily-fan-site.vercel.app/"));
     assert.ok(!detailsBody.includes("https://mily-fan-site.vercel.app/"));
 

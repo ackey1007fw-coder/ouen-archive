@@ -116,7 +116,7 @@ export function PersonCard({ person }: { person: Person }) {
           href={person.siteUrl}
           aria-label={`${person.displayName}の応援サイトへ`}
         >
-          応援サイトへ
+          ファンサイトを見る
           <span aria-hidden="true">→</span>
         </a>
       </div>

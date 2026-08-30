@@ -11,8 +11,9 @@
 ## 現在の主な機能
 
 - 5人の人物カードと展開式PROFILE
+- 期限連動の `SUPPORT NOW`（投票・審査・次の出演予定）
 - 5つのPortal Feedを集約した `TODAY` / `LATEST UPDATES`
-- verifiedなMily realtime banner
+- `SUPPORT NOW` 内のverifiedなMily realtime banner
 - 各child siteから親ポータルへ戻る導線
 - bottom-only creator mini profile
 

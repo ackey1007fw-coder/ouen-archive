@@ -125,8 +125,8 @@ test("the full page renders when all five feeds fail", async () => {
     throw new Error("offline fixture");
   });
 
-  assert.match(html, /応援の入口を、/);
-  assert.match(html, /5つの応援サイトを見る/);
+  assert.match(html, /“今、応援してほしい”が/);
+  assert.match(html, /今の応援を見る/);
   assert.match(html, /LATEST UPDATES/);
   assert.doesNotMatch(html, /realtime-banner/);
 });
@@ -143,7 +143,7 @@ test("5. SHOWROOM timeout still renders the page", async () => {
     throw new Error("feed offline");
   });
 
-  assert.match(html, /応援の入口を、/);
+  assert.match(html, /“今、応援してほしい”が/);
   assert.match(html, /LATEST UPDATES/);
   assert.match(html, /三橋莉子/);
 });
@@ -160,7 +160,7 @@ test("13. invalid JSON still renders the page", async () => {
     throw new Error("feed offline");
   });
 
-  assert.match(html, /応援の入口を、/);
+  assert.match(html, /“今、応援してほしい”が/);
   assert.match(html, /LATEST UPDATES/);
 });
 
@@ -176,7 +176,7 @@ test("14. HTTP error still renders the page", async () => {
     throw new Error("feed offline");
   });
 
-  assert.match(html, /応援の入口を、/);
+  assert.match(html, /“今、応援してほしい”が/);
   assert.match(html, /LATEST UPDATES/);
 });
 
@@ -197,10 +197,10 @@ test("15. unexpected redirect hides the live banner", async () => {
 
   assert.doesNotMatch(html, /配信中/);
   assert.doesNotMatch(html, /realtime-banner--showroom-live/);
-  assert.match(html, /応援の入口を、/);
+  assert.match(html, /“今、応援してほしい”が/);
 });
 
-test("verified live banner appears between person cards and TODAY", async () => {
+test("verified live banner appears in SUPPORT NOW before person cards", async () => {
   const html = await renderHome(async (input) => {
     const url = String(input);
     const bodies = realtimeBodies({
@@ -214,11 +214,14 @@ test("verified live banner appears between person cards and TODAY", async () => 
     throw new Error("feed offline");
   });
 
-  const cards = html.indexOf("person-grid");
+  const supportNow = html.indexOf("support-now-section");
   const banner = html.indexOf("realtime-banner--showroom-live");
+  const cards = html.indexOf("person-grid");
   const latest = html.indexOf("LATEST UPDATES");
-  assert.ok(cards !== -1 && banner !== -1 && latest !== -1);
-  assert.ok(cards < banner && banner < latest);
+  assert.ok(
+    supportNow !== -1 && banner !== -1 && cards !== -1 && latest !== -1,
+  );
+  assert.ok(supportNow < banner && banner < cards && cards < latest);
   assert.match(html, /配信中/);
   assert.match(html, /みりぃがSHOWROOMで配信しています/);
 });

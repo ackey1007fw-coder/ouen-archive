@@ -1,14 +1,16 @@
 import { CreatorMiniProfile } from "@/components/CreatorMiniProfile";
-import { MilyRealtimeBanner } from "@/components/MilyRealtimeBanner";
 import { PersonCard } from "@/components/PersonCard";
 import { PortalFeedSections } from "@/components/PortalFeedSections";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
+import { SupportSpotlight } from "@/components/SupportSpotlight";
+import { supportCampaigns } from "@/data/support-campaigns";
 import { persons } from "@/data/persons";
 import { mergePortalFeedItems } from "@/lib/feed-view";
 import { fetchMilyRealtimeSnapshot } from "@/lib/mily-realtime";
 import { deriveMilyRealtimeBanner } from "@/lib/mily-realtime-state";
 import { fetchPortalFeeds } from "@/lib/portal-feeds";
+import { selectSupportSpotlightItems } from "@/lib/support-spotlight";
 
 /**
  * Request-time HTML so live / radio banners re-evaluate freshness on
@@ -24,6 +26,12 @@ export default async function Home() {
   ]);
   const feedItems = mergePortalFeedItems(feeds);
   const realtimeBanner = deriveMilyRealtimeBanner(realtime);
+  const now = new Date();
+  const supportSpotlightItems = selectSupportSpotlightItems({
+    campaigns: supportCampaigns,
+    feedItems,
+    now,
+  });
 
   return (
     <div className="page-shell">
@@ -41,19 +49,24 @@ export default async function Home() {
             <p className="hero-brand-subtitle">夢と活動の記録</p>
           </div>
           <h1 id="hero-title">
-            <span>応援の入口を、</span>
-            <span>ひとつに。</span>
+            <span>“今、応援してほしい”が</span>
+            <span>すぐわかる。</span>
           </h1>
           <p className="hero-copy">
-            応援アーカイブは、5つの個人応援サイトをつなぐ
+            投票、舞台、配信。今できる応援と5つのファンサイトを
             <br className="desktop-break" />
-            ファン制作の非公式ポータルです。
+            ひとつにつなぐ、ファン制作の非公式ポータルです。
           </p>
-          <a className="hero-link" href="#support-sites">
-            5つの応援サイトを見る
+          <a className="hero-link" href="#support-now">
+            今の応援を見る
             <span aria-hidden="true">↓</span>
           </a>
         </section>
+
+        <SupportSpotlight
+          items={supportSpotlightItems}
+          realtimeBanner={realtimeBanner}
+        />
 
         <section
           className="section-container support-section"
@@ -62,8 +75,10 @@ export default async function Home() {
         >
           <div className="section-heading">
             <p className="eyebrow">SUPPORT SITES</p>
-            <h2 id="support-sites-title">それぞれの応援サイトへ</h2>
-            <p>それぞれの活動や記録へ、ここから。</p>
+            <h2 id="support-sites-title">5人のファンサイトへ</h2>
+            <p>
+              プロフィールや活動の記録、詳しい応援方法を、それぞれのサイトで。
+            </p>
           </div>
 
           <div className="person-grid">
@@ -72,10 +87,9 @@ export default async function Home() {
             ))}
           </div>
 
-          <MilyRealtimeBanner banner={realtimeBanner} />
         </section>
 
-        <PortalFeedSections items={feedItems} />
+        <PortalFeedSections items={feedItems} now={now} />
 
         <CreatorMiniProfile />
       </main>
