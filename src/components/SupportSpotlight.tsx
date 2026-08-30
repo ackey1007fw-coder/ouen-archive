@@ -10,8 +10,6 @@ export function SupportSpotlight({
   items: readonly SupportSpotlightItem[];
   realtimeBanner: RealtimeBanner | null;
 }) {
-  if (items.length === 0 && !realtimeBanner) return null;
-
   return (
     <section
       className="support-now-section"
