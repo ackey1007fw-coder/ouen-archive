@@ -1,6 +1,6 @@
 # AI HANDOFF — 応援アーカイブ
 
-Last updated: 2026-08-20 JST
+Last updated: 2026-08-30 JST
 
 この文書は、ChatGPT / Claude Code / Codex / Grok など別のAIや別チャットが、過去の会話を読めなくても現在地点から作業を再開できるようにするための「現在のセーブデータ」です。
 
@@ -54,10 +54,11 @@ ChizuruだけはChatGPT Sites系の公開先です。GitHub変更とSitesへの�
 ParentはNext.js App Router / TypeScript / pnpmで構成されています。主要な現在機能:
 
 - 5人の人物カード
+- トップ直下の `SUPPORT NOW`（期限連動の投票・審査と、次の出演予定）
 - 5つのPortal Feedをサーバー側で集約
 - `TODAY`
 - `LATEST UPDATES`
-- Mily verified realtime banner
+- `SUPPORT NOW` 内のMily verified realtime banner
 - 制作者の控えめなmini profile
 - 5人それぞれの展開式PROFILE
 - PROFILE内の `LINKS｜SNS・配信`（本人SNS / SHOWROOM / MixChannel / ラジオ等への直接導線）
@@ -65,6 +66,23 @@ ParentはNext.js App Router / TypeScript / pnpmで構成されています。主
 - 4人のポートレートを使ったOGPシェア画像（`src/app/opengraph-image.tsx`）
 
 親ポータルのPROFILEを開けば、応援サイトを経由せずに本人のSNS・配信・ラジオへ移動でき、Milyについては MISS CIRCLE 2026 公式ENTRYからそのまま応援へ進めます。
+
+### SUPPORT NOW
+
+`src/data/support-campaigns.ts` に、公開確認済みで期間が確定した投票・審査を保存します。`src/lib/support-spotlight.ts` が東京時間で次を選び、最大4件をトップ直下へ表示します。
+
+1. 期間中のcampaign
+2. 30日以内に始まるcampaign
+3. Portal Feedにある各人物の次の `schedule | event`（1人1件）
+
+期限を過ぎたcampaignは自動で表示から外れます。Portal Feed本文から「応援中」を推測せず、campaignは確認済みの開始・終了日時を明示します。人物カード5人の固定順・同等weightは従来どおり維持し、SUPPORT NOWへの掲載は人気順ではなく現在の行動可能性だけで決まります。
+
+2026-08-30時点の登録campaign:
+
+- CAMPUS GIRLS 2027 予選A FinalSTAGE Paton投票（8/26 18:00〜9/1 23:59）
+- MISS CIRCLE 2026 3次審査 WEB投票（9/3 12:00〜9/13 23:59）
+- 夏凪里季 舞台 `Homin'`（9/11・12・13・15）
+- 吉井優花子 `BABY SHARK LIVE!` 福山・久留米公演（9/19・20）
 
 ### Portal Feed
 
@@ -91,7 +109,7 @@ PR #3でverified realtime統合済み。
 
 ---
 
-## 3. 2026-08-18〜20 に実施した主要作業
+## 3. 2026-08-18〜30 に実施した主要作業
 
 ### Parent portal
 
@@ -108,6 +126,12 @@ PR #3でverified realtime統合済み。
   - squash merge commit: `d8aa7e8ca98e09b0618872e309d83e1d75dd0816`
 - PR #8 — PROFILE内にLINKS｜SNS・配信 / SUPPORT｜応援・投票を追加
   - https://github.com/ackey1007fw-coder/ouen-archive/pull/8
+- Phase 8 — トップを「いま応援できること」中心へ更新
+  - `SUPPORT NOW` をhero直下へ追加
+  - 期限つきcampaignの自動開始・終了
+  - Portal Feedから各人物の次の出演予定を自動抽出
+  - verified realtime bannerをSUPPORT NOWへ移動
+  - 5人のファンサイトCTAを明確化
 
 ### Child → Parent の戻り導線
 
@@ -309,6 +333,7 @@ bioは `2022年に退職` のような弱い年次断定を避け、現在は「
 4. 新年度にMily / Ririの大学学年を再確認
 5. 大きなphaseをmergeしたら、この `AI_HANDOFF.md` を更新する
 6. OGP差し替えをmerge後、本番URLでX / Slack等のカードキャッシュが更新されたか確認する
+7. SUPPORT NOW反映後、本番でPaton・MISS CIRCLE・次の出演予定の各CTAが正しい遷移先を示すか確認する
 
 このリストは完了したら更新・削除してください。
 
