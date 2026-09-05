@@ -81,7 +81,9 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
-git diff --check
+git diff --check                      # 未ステージの変更
+git diff --cached --check             # ステージ済みの変更
+git diff --check origin/main...HEAD   # コミット済みのPR差分（最新のbaseを取得後）
 ```
 
 - UI変更は390 / 430 / 1280pxを基本に、対象画面、PROFILE開閉、リンク、focus、横overflowを確認する。
