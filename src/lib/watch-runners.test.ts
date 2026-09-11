@@ -7,6 +7,10 @@ type Period = { key: string; start: number; end: number; label: string };
 type Room = { slug: string; name?: string; startedAt?: number | null };
 type State = { period: string; done: { slug: string; at: number }[]; adjustment: number; queue: Room[]; index: number; active: boolean; checkpoint: { slug: string; elapsed: number } | null };
 type Runner = {
+  repeatedMissionCount: (raw: unknown) => {achieved:number;received:number;pending:number;limit:number} | null;
+  mixchBonusProgress: (text: string) => {achieved:number;received:number;pending:number;limit:number} | null;
+  freshLinkedSnapshot: (s: unknown, now:number, kind?:string) => unknown;
+  isAdPage: (url:string) => boolean;
   missionReadUrl: (page: string, roomId: unknown) => string;
   officialMissionSummary: (payload: unknown, now: number) => {id:number;title:string;current:number;target:number}[];
   listSource: (url: string) => string;
@@ -118,7 +122,7 @@ test('both installers are self-contained and do not automate service actions', (
     assert.match(code,/if \(!isList && !current\?\.viewing\) return/);
   }
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
-  assert.match(srCode,/@version\s+1\.3\.1/);
+  assert.match(srCode,/@version\s+1\.4\.0/);
 });
 
 test('standalone installers share the same reviewed engine without runtime dependencies', () => {
@@ -201,4 +205,33 @@ test('read-only access adds no cookie parsing, POSTs or privileged cross-origin 
     assert.match(code,/officialLastAttempt >= 60000/);
     assert.match(code,/\{ signal: ctx.signal \}/);
   }
+});
+
+
+test('official repeated mission counts match the official card, not the seconds gauge', () => {
+  const row={current_value:0,target_value:30,current_level:9,max_level:20,remain_reward:2};
+  assert.equal(sr.repeatedMissionCount(row)?.achieved,8);
+  assert.equal(sr.repeatedMissionCount(row)?.received,6);
+  assert.equal(sr.repeatedMissionCount(row)?.pending,2);
+  assert.equal(sr.repeatedMissionCount({...row,current_value:30})?.achieved,9);
+  assert.equal(sr.repeatedMissionCount({...row,current_value:30,current_level:20,remain_reward:0})?.received,20);
+  for(const invalid of [{}, {...row,current_level:0},{...row,remain_reward:9},{...row,max_level:1},{...row,current_value:31},{...row,current_level:'9'}])assert.equal(sr.repeatedMissionCount(invalid),null);
+});
+test('Mixch reads only the exact official bonus notice and does not assume a daily limit', () => {
+  const c=mx.mixchBonusProgress('視聴ボーナスGET！ 17/25 スパコメや応援アイテムでライブをガンガン盛り上げよう♪');
+  assert.equal(c?.achieved,17);assert.equal(c?.limit,25);
+  for(const s of ['チャット: 視聴ボーナスGET！ 1/20','所持 454コイン','視聴ボーナスGET！ 21/20','視聴ボーナスGET！ 0/0','昨日 視聴ボーナスGET！ 5/20'])assert.equal(mx.mixchBonusProgress(s),null);
+});
+
+test('linked snapshots expire and never convert another period or invalid totals to current progress', () => {
+  const record={kind:'sr',period:sr.periodAt(morning).key,at:morning,achieved:8,received:6,pending:2,limit:20};
+  assert.ok(sr.freshLinkedSnapshot(record,morning+1000));
+  for(const r of [{...record,at:morning+1},{...record,received:9},{...record,kind:'mx'},{...record,limit:7}])assert.equal(sr.freshLinkedSnapshot(r,morning),null);
+  assert.equal(sr.freshLinkedSnapshot(record,morning+90001),null);
+  assert.equal(sr.freshLinkedSnapshot(record,Date.parse('2026-09-11T15:00:00+09:00')),null);
+});
+test('ad helper mounts only on official dashboards, never the video watch or unrelated pages', () => {
+  for(const path of ['/lottery/ad_reward','/lottery/ad_reward/1'])assert.equal(sr.isAdPage('https://www.showroom-live.com'+path),true);
+  for(const url of ['https://www.showroom-live.com/lottery/ad_reward/1/watch','https://www.showroom-live.com/lottery/ad_reward/maintenance','https://evil.test/lottery/ad_reward','http://www.showroom-live.com/lottery/ad_reward','https://u@www.showroom-live.com/lottery/ad_reward'])assert.equal(sr.isAdPage(url),false);
+  assert.equal(mx.isAdPage('https://www.showroom-live.com/lottery/ad_reward'),false);
 });

@@ -101,7 +101,7 @@ try {
         await checkText('name',/未記録 1ルーム.*記録済み 1件/);
         await part('start').click();await page.waitForURL(target.live(target.two));await panel().waitFor();
         await part('exclude').click();await settle();
-        if(page.url()!==target.home){await part('back').click();await page.waitForURL(target.home);}
+        await page.waitForURL(target.home);
         await panel().waitFor();await checkText('total',/0 \/ 20/);
         await checkText('name',/未記録 0ルーム.*記録済み 2件/);
         await panel().locator('summary').filter({hasText:'記録の調整・あとで見る'}).click();page.once('dialog',d=>d.accept());await part('reset').click();await settle();
