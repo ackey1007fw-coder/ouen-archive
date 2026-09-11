@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mixch Watch Helper Mobile
 // @namespace    https://mixch.tv/
-// @version      0.1.1
+// @version      0.2.0
 // @description  ミクチャの手動視聴メモβ。コイン付与・現行獲得条件は未検証。時間・件数は端末内の目安です。
 // @author       ackey + ChatGPT
 // @match        https://mixch.tv/*
@@ -15,7 +15,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "mx", "version": "0.1.1", "home": "https://mixch.tv/", "title": "🎬 ミクチャ視聴メモ β", "key": "mxwh_progress_v1", "id": "mxwh-mobile"};
+  const CONFIG = {"kind": "mx", "version": "0.2.0", "home": "https://mixch.tv/", "title": "🎬 ミクチャ視聴メモ β", "key": "mxwh_progress_v1", "id": "mxwh-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -93,7 +93,7 @@
       const startedAt = parseStartedAt(live.textContent);
       if (startedAt && startedAt > Date.now()) continue;
       const name = item.querySelector('.onlivecard-name')?.textContent || card.querySelector('img.onlivecard-bg')?.alt || r.slug;
-      found.push({ slug: r.slug, startedAt, name: cleanName(name) });
+      found.push({ slug: r.slug, roomId: validRoomId(a.getAttribute('data-room-id')), startedAt, name: cleanName(name) });
     }
     return roomsOnly(found);
   }
@@ -133,7 +133,7 @@
     return value.slice(0, 300).filter(r => {
       if (!r || !liveUrl(r.slug) || seen.has(r.slug)) return false;
       seen.add(r.slug); return true;
-    }).map(r => ({ slug: r.slug, name: cleanName(r.name || r.slug), startedAt: validStart(r.startedAt) }));
+    }).map(r => ({ slug: r.slug, name: cleanName(r.name || r.slug), roomId: validRoomId(r.roomId), startedAt: validStart(r.startedAt) }));
   }
   function normalizeState(value, period) {
     const s = value && value.period === period.key ? value : {};
@@ -162,32 +162,89 @@
   function migrateLegacy(legacy, period) {
     return normalizeState({ period: period.key, done: legacy?.completed }, period);
   }
-  // Only media time that advanced while visible is counted. No play(), API,
+  // Only media time that advanced while visible is counted. No play(), reward API,
   // auto-follow, reward claims, or background viewing is performed.
   function timerDelta(wall, mediaDelta, visible, playing) {
     return visible && playing && wall > 0 && wall <= 1500 && mediaDelta > 0 && mediaDelta <= 2
       ? Math.min(wall, mediaDelta * 1000, 1000) : 0;
   }
-  const api = { listSource, returnListUrl, officialRooms, parseStartedAt, normalizeHistory, isRecorded, recordKey, periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, roomsOnly };
+
+  const validRoomId = n => /^[1-9][0-9]{0,11}$/.test(String(n || '')) ? String(n) : '';
+  function missionReadUrl(pageUrl, roomId) {
+    if (CONFIG.kind !== 'sr' || !validRoomId(roomId)) return '';
+    try {
+      const u = new URL(pageUrl);
+      if (u.protocol !== 'https:' || u.username || u.password || u.port || !['showroom-live.com', 'www.showroom-live.com'].includes(u.hostname)) return '';
+      if (listSource(u.href) !== 'official' && !parseRoom(u.href)?.viewing) return '';
+      return `${u.origin}/api/mission?room_id=${validRoomId(roomId)}`;
+    } catch { return ''; }
+  }
+  function officialMissionSummary(payload, now) {
+    if (!Array.isArray(payload?.genre_list)) return [];
+    const daily = payload.genre_list.filter(g => g?.genre === 'daily');
+    const slot = periodAt(now).label.startsWith('昼') ? 'day' : 'night';
+    if (daily.length !== 1 || daily[0].current_period !== slot) return [];
+    const group = daily[0][slot];
+    if (!Array.isArray(group?.continuous_mission) || !Array.isArray(group?.single_mission)) return [];
+
+    const rows = [...group.continuous_mission, ...group.single_mission];
+    const seen = new Set(), out = [];
+    for (const r of rows.slice(0, 100)) {
+      if (!r || !Number.isSafeInteger(r.mission_id) || r.mission_id < 1 || typeof r.title !== 'string' || !r.title.includes('視聴') || r.is_active !== 1) continue;
+      if (!Number.isSafeInteger(r.current_value) || !Number.isSafeInteger(r.target_value) || r.current_value < 0 || r.target_value < 1 || r.current_value > r.target_value || r.target_value > 100000) continue;
+      if (seen.has(r.mission_id)) return [];
+      seen.add(r.mission_id); out.push({ id:r.mission_id, title:cleanName(r.title), current:r.current_value, target:r.target_value });
+    }
+    return out;
+  }
+
+  const api = { officialMissionSummary, missionReadUrl, listSource, returnListUrl, officialRooms, parseStartedAt, normalizeHistory, isRecorded, recordKey, periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, roomsOnly };
   if (typeof document === 'undefined') {
     if (typeof module !== 'undefined') module.exports = api;
     return;
   }
-  void main().catch(() => {
-    const box = document.getElementById(CONFIG.id) || document.createElement('div');
-    box.id = CONFIG.id;
-    box.textContent = `${CONFIG.title}: 保存領域を読み込めませんでした。Userscriptsのサイト権限を確認し、再読み込みしてください。`;
-    box.style.cssText = 'position:fixed;bottom:12px;left:12px;right:12px;z-index:2147483647;background:#161b24;color:white;padding:16px';
-    document.body.appendChild(box);
-  });
 
-  async function main() {
+  const lifetimeKey = `${CONFIG.id}_runtime_v2`;
+  if (window[lifetimeKey]) return;
+  window[lifetimeKey] = true;
+  let instance = null, mounting = false;
+  function context() {
+    const abort = new AbortController(), tasks = [];
+    return { href: location.href, alive: true, host: null, signal: abort.signal,
+      every(fn, delay) { const id = setInterval(fn, delay); tasks.push(() => clearInterval(id)); },
+      dispose() { this.alive = false; abort.abort(); tasks.forEach(f => f()); this.host?.remove(); } };
+  }
+
+  async function supervise() {
+    if (instance && instance.href !== location.href) { instance.dispose(); instance = null; }
+    if (mounting) return;
+    if (instance) {
+      if (instance.host && !instance.host.isConnected && document.body) document.body.appendChild(instance.host);
+      return;
+    }
+    if (!document.body || (!listSource(location.href) && !parseRoom(location.href)?.viewing)) return;
+    const ctx = context(); instance = ctx; mounting = true;
+    try { await main(ctx); }
+    catch {
+      if (!ctx.alive) return;
+      ctx.host?.remove(); ctx.host = document.createElement('section'); ctx.host.id = CONFIG.id;
+      ctx.host.textContent = `${CONFIG.title}: 起動できませんでした。SafariのUserscriptsで、このサイトの許可とスクリプトの有効化を確認して再読み込みしてください。`;
+      ctx.host.style.cssText = 'position:fixed;bottom:12px;left:12px;right:12px;z-index:2147483647;background:#161b24;color:white;padding:16px';
+      document.body.appendChild(ctx.host);
+    } finally { mounting = false; }
+  }
+  setInterval(() => { if (!document.hidden) void supervise(); }, 600);
+  void supervise();
+  async function main(ctx) {
+    const alive = () => ctx.alive && location.href === ctx.href;
+    const every = (fn, delay) => ctx.every(() => { if (alive()) fn(); }, delay);
+    const navigate = url => { if (alive()) location.assign(url); };
     const current = parseRoom(location.href);
     const source = listSource(location.href);
     const isList = !!source;
     // Normal profile/follow pages must never be redirected or timed.
     if (!isList && !current?.viewing) return;
-    if (document.getElementById(CONFIG.id)) return;
+    if (!alive() || document.getElementById(CONFIG.id)) return;
     const prefix = CONFIG.key;
     let prefs = await GM.getValue(`${prefix}_prefs`, {});
     prefs = { seconds: [30, 32, 35].includes(prefs?.seconds) ? prefs.seconds : 32,
@@ -201,16 +258,20 @@
       return normalizeState(raw, p);
     }
     let state = await readState(period);
+    if (!alive()) return;
     const backUrl = isList ? returnListUrl(location.href) : returnListUrl(state.listUrl);
     const historyKey = `${prefix}_broadcast_history`;
     const readHistory = async () => CONFIG.kind === 'sr' ? normalizeHistory(await GM.getValue(historyKey, [])) : [];
     let history = await readHistory();
+    if (!alive()) return;
     if (CONFIG.kind === 'sr') {
       const legacy = await GM.getValue('srmr_mobile_session_v2', null);
       const seed = await GM.getValue(`${historyKey}_seeded`, false);
       history = normalizeHistory([...history, ...state.done, ...(!seed && Array.isArray(legacy?.completed) ? legacy.completed : [])]);
-      await GM.setValue(historyKey, history); await GM.setValue(`${historyKey}_seeded`, true);
+      if (!alive()) return;
+      await GM.setValue(historyKey, history); if (!alive()) return; await GM.setValue(`${historyKey}_seeded`, true);
     }
+    if (!alive()) return;
     await GM.setValue(storageKey(period), state);
     let busy = false, elapsed = 0, paused = false, ready = false, notice = '', ended = false, boundaryStop = false;
     let lastWall = performance.now(), lastMedia = null, lastTime = null, pending = Promise.resolve();
@@ -225,7 +286,8 @@
       lastWall = performance.now(); lastMedia = null; lastTime = null;
     }
     resetTimer();
-    const host = document.createElement('section'); host.id = CONFIG.id;
+    if (!alive()) return;
+    const host = document.createElement('section'); host.id = CONFIG.id; ctx.host = host;
     host.style.cssText = 'position:fixed;left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));z-index:2147483647';
     const root = host.attachShadow({ mode: 'open' });
     root.innerHTML = `<style>
@@ -249,6 +311,10 @@
       <div class="row" id="watchControls"><button class="primary" id="next" disabled>記録して次へ</button><button id="skip">スキップ</button></div>
       <div class="row fold" id="discover"><a class="action" id="follow" target="_blank" rel="noopener noreferrer">♡ フォロー画面</a><button id="favorite">☆ あとで見る</button></div><div class="row fold" id="excludeControls"><button id="exclude">取得済みなので除外</button></div>
       <div class="row fold" id="pauseControls"><button id="pause">一時停止</button><button id="back">中断・一覧へ</button></div>
+      <details class="fold" id="officialBox"><summary>公式の進捗（読取専用・試用）</summary>
+        <button id="officialRead">公式の進捗を読む</button><label class="note"><input id="officialAuto" type="checkbox" style="width:auto;min-height:24px">この画面で60秒ごとに読む</label>
+        <div class="note" id="officialResult" role="status">公式の達成数と配信別の獲得履歴は別です。読み取った進捗は端末件数に自動加算せず、表示だけします。</div>
+      </details>
       <details class="fold"><summary>記録の調整・あとで見る</summary>
         <div class="note">この端末の記録です。公式の達成・受取件数とは同期しません。別アプリで視聴した分は件数を合わせてください。取得済みの配信をこの端末に記録して除外します。開始時刻が分からない記録済みルームも安全側で除外します。</div>
         <div class="row"><label>確認した件数 <input id="actual" type="number" min="0" max="20" value="0" inputmode="numeric"></label><button id="adjust">件数を合わせる</button></div>
@@ -267,7 +333,46 @@
       : 'β版: ブラウザでの視聴コイン付与・現行条件は未検証。まず1ルームで確認してください。0時はこのメモの区切りで、公式条件ではありません。';
     if (!isList) el('follow').href = profileUrl(current.slug);
 
+    const officialAllowed = CONFIG.kind === 'sr' && ['www.showroom-live.com', 'showroom-live.com'].includes(location.hostname);
+    el('officialBox').hidden = !officialAllowed;
+    let officialLoading = false, officialLastAttempt = -Infinity, officialSnapshot = null;
+    function currentRoomId() {
+      if (!isList) return validRoomId(roomHere().roomId);
+      return listRooms().map(r => validRoomId(r.roomId)).find(Boolean) || '';
+    }
+    async function readOfficial() {
+      if (!officialAllowed || !alive() || document.hidden || officialLoading || performance.now() - officialLastAttempt < 5000) return;
+      const url = missionReadUrl(location.href, currentRoomId());
+      if (!url) { el('officialResult').textContent = '公式一覧から開始した後に読み取ってください。対象ルームIDを確認できないため通信していません。'; return; }
+      const readPeriod = periodAt(Date.now()).key;
+      officialLastAttempt = performance.now(); officialLoading = true; el('officialRead').disabled = true;
+      officialSnapshot = null; el('officialResult').textContent = '公式の進捗を読取中…';
+
+
+
+      const controller = new AbortController();
+      const abort = () => controller.abort(); ctx.signal.addEventListener('abort', abort, { once: true });
+      const timeout = setTimeout(abort, 8000);
+      try {
+        // Exact first-party GET seen in the official client. Never call /receive.
+        const response = await fetch(url, { method: 'GET', credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal: controller.signal });
+        if (!response.ok) throw new Error('Unavailable');
+        const text = await response.text(); if (text.length > 1000000) throw new Error('Oversized');
+        const rows = officialMissionSummary(JSON.parse(text), Date.now());
+        if (!alive() || periodAt(Date.now()).key !== readPeriod) return;
+        if (!rows.length) { el('officialAuto').checked = false; el('officialResult').textContent = '対応する公式データを確認できません。ログイン状態・ミッション画面を確認してください。0件とは扱わず、端末記録も変更していません。'; return; }
+        officialSnapshot = { rows, period: readPeriod, at: Date.now() };
+        const time = new Date(officialSnapshot.at).toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' });
+        el('officialResult').textContent = `公式の進捗（${time}取得）: ` + officialSnapshot.rows.map(r => `${r.title} ${r.current}/${r.target}`).join(' ／ ') + '。受取済み件数・配信別履歴ではありません。';
+      } catch {
+        if (alive()) { el('officialAuto').checked = false; el('officialResult').textContent = '公式データを読み取れませんでした。端末の記録は変更していません。'; }
+      } finally { clearTimeout(timeout); ctx.signal.removeEventListener('abort', abort); officialLoading = false; if (alive()) el('officialRead').disabled = false; }
+    }
+    el('officialRead').addEventListener('click', () => void readOfficial());
+    el('officialAuto').addEventListener('change', () => { if (el('officialAuto').checked) void readOfficial(); });
+    if (officialAllowed) every(() => { if (el('officialAuto').checked && performance.now() - officialLastAttempt >= 60000) void readOfficial(); }, 2500);
     function listRooms() {
+
       if (source === 'official') return officialRooms(document, location.href);
       const scope = CONFIG.kind === 'sr' ? document.querySelector('#roomlist') : document;
       if (!scope) return [];
@@ -335,6 +440,7 @@
     async function rollover() {
       const p = periodAt(Date.now());
       if (p.key === period.key) return false;
+      officialSnapshot = null; el('officialAuto').checked = false; el('officialResult').textContent = '時間帯が切り替わりました。公式データは再読取が必要です。';
       period = p; history = await readHistory(); state = await readState(p); if (!state.active) state.listUrl = backUrl; await GM.setValue(storageKey(p), state);
       ended = true; elapsed = 0; ready = false; lastTime = null; lastMedia = null;
       boundaryStop = CONFIG.kind === 'sr' && !isList;
@@ -345,13 +451,15 @@
       const p = period, runId = state.run, expectedIndex = state.index;
       const work = pending.then(async () => {
         if (periodAt(Date.now()).key !== p.key) { await rollover(); return false; }
+        if (!alive()) return false;
         const latest = await readState(p);
+        if (!alive()) return false;
         if (periodAt(Date.now()).key !== p.key) { await rollover(); return false; }
         if (requireActive && (!latest.active || latest.run !== runId || latest.index !== expectedIndex)) {
           state = latest; ended = true; notice = '別の画面で進んだため、この画面の計測を停止しました。'; render(); return false;
         }
         history = await readHistory();
-        await fn(latest); await GM.setValue(storageKey(p), latest);
+        await fn(latest); if (!alive()) return false; await GM.setValue(storageKey(p), latest);
         if (period.key === p.key) state = latest;
         return true;
       });
@@ -359,7 +467,7 @@
       return work;
     }
     async function run(fn) {
-      if (busy) return;
+      if (!alive() || busy) return;
       busy = true; render();
       try { if (!await rollover()) await fn(); }
       catch { paused = true; notice = '保存できませんでした。移動せず再読み込みし、記録を確認してください。'; }
@@ -382,7 +490,7 @@
         if (i > 0) rooms.unshift(...rooms.splice(i, 1));
       }
       const ok = await transact(s => { s.listUrl = returnListUrl(location.href); s.queue = rooms.filter(r => !isRecorded(r, [...history, ...s.done])); s.index = 0; s.active = s.queue.length > 0; s.run = `${Date.now()}-${Math.random()}`; });
-      if (ok && state.active && periodAt(Date.now()).key === period.key) location.assign(liveUrl(state.queue[0].slug));
+      if (ok && state.active && periodAt(Date.now()).key === period.key) navigate(liveUrl(state.queue[0].slug));
     });
     async function advance(skip) {
       if (boundaryStop) return;
@@ -408,7 +516,7 @@
         if (!destination) s.active = false;
       }, true);
       if (!ok || periodAt(Date.now()).key !== period.key) return;
-      if (destination) location.assign(destination);
+      if (destination) navigate(destination);
       else { ended = true; notice = countDone(state, prefs.target) >= prefs.target ? '目標まで記録しました。公式の結果・受取も確認してください。' : 'この一覧はここまで。中断・一覧へ戻ると、残りから続けられます。'; }
     }
     bind('next', () => advance(false)); bind('skip', () => advance(true));
@@ -418,7 +526,7 @@
       if (activeHere()) await advance(true);
     });
     bind('pause', async () => { paused = !paused; lastTime = null; await checkpoint(); });
-    bind('back', async () => { await checkpoint(); location.assign(backUrl); });
+    bind('back', async () => { await checkpoint(); navigate(backUrl); });
     bind('favorite', async () => {
       favorites = roomsOnly(await GM.getValue(`${prefix}_favorites`, []));
       if (favorites.some(r => r.slug === current.slug)) favorites = favorites.filter(r => r.slug !== current.slug);
@@ -443,9 +551,9 @@
     }));
     el('compact').addEventListener('click', () => { const compact = root.querySelector('.box').classList.toggle('compact'); el('compact').textContent = compact ? '戻す' : '小さく'; });
     // Keep no media samples across app switches, pauses, or bfcache restores.
-    document.addEventListener('visibilitychange', () => { lastMedia = null; lastTime = null; lastWall = performance.now(); if (document.hidden) void checkpoint().catch(() => {}); else void run(async () => { await pending; state = await readState(period); resetTimer(); }); });
-    window.addEventListener('pageshow', () => { lastMedia = null; lastTime = null; lastWall = performance.now(); void run(async () => { await pending; state = await readState(period); resetTimer(); }); });
-    setInterval(() => {
+    document.addEventListener('visibilitychange', () => { lastMedia = null; lastTime = null; lastWall = performance.now(); if (document.hidden) void checkpoint().catch(() => {}); else void run(async () => { await pending; state = await readState(period); resetTimer(); }); }, { signal: ctx.signal });
+    window.addEventListener('pageshow', () => { lastMedia = null; lastTime = null; lastWall = performance.now(); void run(async () => { await pending; state = await readState(period); resetTimer(); }); }, { signal: ctx.signal });
+    every(() => {
       if (periodAt(Date.now()).key !== period.key) { void run(async () => {}); return; }
       const now = performance.now(), wall = now - lastWall; lastWall = now;
       if (!activeHere() || blockedHere() || paused || busy || ready || document.hidden) { lastMedia = null; lastTime = null; return; }
@@ -456,7 +564,7 @@
       if (elapsed >= prefs.seconds * 1000) { elapsed = prefs.seconds * 1000; ready = true; }
       render();
     }, 250);
-    setInterval(() => { if (!busy) void run(async () => { history = await readHistory(); if (activeHere()) await checkpoint(); else state = await readState(period); }); }, 2500);
+    every(() => { if (!busy) void run(async () => { history = await readHistory(); if (activeHere()) await checkpoint(); else state = await readState(period); }); }, 2500);
     renderFavorites(); render();
   }
 })();

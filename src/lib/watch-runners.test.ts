@@ -7,6 +7,8 @@ type Period = { key: string; start: number; end: number; label: string };
 type Room = { slug: string; name?: string; startedAt?: number | null };
 type State = { period: string; done: { slug: string; at: number }[]; adjustment: number; queue: Room[]; index: number; active: boolean; checkpoint: { slug: string; elapsed: number } | null };
 type Runner = {
+  missionReadUrl: (page: string, roomId: unknown) => string;
+  officialMissionSummary: (payload: unknown, now: number) => {id:number;title:string;current:number;target:number}[];
   listSource: (url: string) => string;
   returnListUrl: (url?: string) => string;
   parseStartedAt: (text: string) => number | null;
@@ -111,12 +113,12 @@ test('Mixch accepts verified public live URL form, not events or movie entries',
 test('both installers are self-contained and do not automate service actions', () => {
   for (const code of [srCode,mxCode]) {
     assert.match(code,/@inject-into\s+content/);assert.match(code,/@noframes/);
-    assert.doesNotMatch(code,/@require|fetch\(|XMLHttpRequest|\.play\(|location\.replace\(|document\.cookie|sendBeacon/);
+    assert.doesNotMatch(code,/@require|XMLHttpRequest|\.play\(|location\.replace\(|document\.cookie|sendBeacon/);
     assert.match(code,/公式の達成・受取件数とは同期しません/);
     assert.match(code,/if \(!isList && !current\?\.viewing\) return/);
   }
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
-  assert.match(srCode,/@version\s+1\.2\.0/);
+  assert.match(srCode,/@version\s+1\.3\.0/);
 });
 
 test('standalone installers share the same reviewed engine without runtime dependencies', () => {
@@ -165,4 +167,38 @@ test('return-to-list state is allowlisted and shares the same progress storage',
   assert.equal((s as State & {listUrl: string}).listUrl,'https://www.showroom-live.com/');
   assert.match(srCode,/srmr_progress_v3/);
   assert.match(srCode,/@namespace\s+https:\/\/nao\.qa\//);
+});
+
+
+test('mission reads are exact first-party GET destinations and unavailable on Mixch', () => {
+  assert.equal(sr.missionReadUrl('https://www.showroom-live.com/','123456'),'https://www.showroom-live.com/api/mission?room_id=123456');
+  assert.equal(sr.missionReadUrl('https://showroom-live.com/lite/test-room',123456),'https://showroom-live.com/api/mission?room_id=123456');
+  for (const page of ['https://nao.qa/ap/','https://mixch.tv/','https://www.showroom-live.com/room/profile','https://www.showroom-live.com/api/mission/receive','https://showroom-live.com.evil.test/','http://www.showroom-live.com/','https://u@www.showroom-live.com/']) assert.equal(sr.missionReadUrl(page,'123456'),'');
+  for (const id of ['',0,-1,'123&other=1','00123','abc','1234567890123']) assert.equal(sr.missionReadUrl('https://www.showroom-live.com/',id),'');
+  assert.equal(mx.missionReadUrl('https://www.showroom-live.com/','123456'),'');
+});
+const mission = (overrides = {}) => ({mission_id:1001,title:'配信を30秒視聴しよう',current_value:8,target_value:20,is_active:1,...overrides});
+const daily = (rows: unknown[], slot = 'day') => ({genre_list:[{genre:'daily',current_period:slot,[slot]:{continuous_mission:rows,single_mission:[],composite_mission:mission({mission_id:9999})}}]});
+test('official progress keeps exact mission titles and values without inferring room history', () => {
+  const rows=sr.officialMissionSummary(daily([mission()]),morning);
+  assert.equal(rows.length,1);assert.equal(rows[0].current,8);assert.equal(rows[0].target,20);assert.equal(rows[0].title,'配信を30秒視聴しよう');
+  assert.equal('slug' in rows[0],false);
+  assert.equal(sr.officialMissionSummary(daily([mission({current_value:20})]),morning)[0].current,20);
+});
+
+test('unavailable, stale-slot and ambiguous official data never become zero progress', () => {
+  for(const value of [null,{}, {genre_list:[]},daily([mission()],'night'),daily([mission(),mission()]),daily([mission({current_value:'8'})]),daily([mission({current_value:-1})]),daily([mission({current_value:21})]),daily([mission({title:'フォローしよう'})]),daily([mission({is_active:0})])]) assert.equal(sr.officialMissionSummary(value,morning).length,0);
+  const night=at('2026-09-11T15:00:00+09:00');
+  assert.equal(sr.officialMissionSummary(daily([mission()]),night).length,0);
+  assert.equal(sr.officialMissionSummary(daily([mission()],'night'),night)[0].current,8);
+});
+test('read-only access adds no cookie parsing, POSTs or privileged cross-origin request', () => {
+  for(const code of [srCode,mxCode]) {
+    assert.equal((code.match(/await fetch\(/g)||[]).length,1);
+    assert.match(code,/method: 'GET', credentials: 'same-origin', redirect: 'error'/);
+    assert.doesNotMatch(code,/method:\s*['"](?:POST|PUT|DELETE)|GM\.xmlHttpRequest|document\.cookie/);
+    assert.match(code,/missionReadUrl\(location.href, currentRoomId\(\)\)/);
+    assert.match(code,/officialLastAttempt >= 60000/);
+    assert.match(code,/\{ signal: ctx.signal \}/);
+  }
 });

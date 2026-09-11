@@ -63,7 +63,7 @@ try {
       await page.goto(target.home);await panel().waitFor();
       await check('list is deduplicated and future/untrusted rooms are excluded',async()=>{await checkText('name',/未記録 2ルーム/);assert.equal(navigations.length,1);});
       await check('ten prior rooms can be recorded locally, survive reload and leave ten',async()=>{
-        await panel().locator('summary').click();await part('actual').fill('10');await part('adjust').click();await settle();
+        await panel().locator('summary').filter({hasText:'記録の調整・あとで見る'}).click();await part('actual').fill('10');await part('adjust').click();await settle();
         await checkText('total',/10 \/ 20.*あと10件/);await page.reload();await panel().waitFor();await checkText('total',/10 \/ 20.*あと10件/);
       });
       await part('start').click();await page.waitForURL(target.live(target.one));await panel().waitFor();
@@ -103,7 +103,7 @@ try {
         await part('exclude').click();await settle();await checkText('total',/0 \/ 20/);
         await part('back').click();await page.waitForURL(target.home);await panel().waitFor();
         await checkText('name',/未記録 0ルーム.*記録済み 2件/);
-        await panel().locator('summary').click();page.once('dialog',d=>d.accept());await part('reset').click();await settle();
+        await panel().locator('summary').filter({hasText:'記録の調整・あとで見る'}).click();page.once('dialog',d=>d.accept());await part('reset').click();await settle();
         await checkText('name',/未記録 0ルーム.*記録済み 2件/);
 
         firstStart='2026/09/11 15:01:00';await page.clock.setSystemTime(new Date('2026-09-11T15:05:00+09:00'));
