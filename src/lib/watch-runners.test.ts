@@ -4,16 +4,21 @@ import { Script } from 'node:vm';
 import { test } from 'node:test';
 
 type Period = { key: string; start: number; end: number; label: string };
-type Room = { slug: string; name?: string };
+type Room = { slug: string; name?: string; startedAt?: number | null };
 type State = { period: string; done: { slug: string; at: number }[]; adjustment: number; queue: Room[]; index: number; active: boolean; checkpoint: { slug: string; elapsed: number } | null };
 type Runner = {
+  listSource: (url: string) => string;
+  returnListUrl: (url?: string) => string;
+  parseStartedAt: (text: string) => number | null;
+  normalizeHistory: (raw: unknown) => {slug:string;at:number;startedAt:number|null}[];
+  isRecorded: (room: Room, records: {slug:string;at:number}[]) => boolean;
   periodAt: (now: number) => Period;
   parseRoom: (url: string) => { slug: string; viewing: boolean } | null;
   liveUrl: (slug: string) => string;
   profileUrl: (slug: string) => string;
   normalizeState: (raw: unknown, period: Period) => State;
   countDone: (state: State, target: number) => number;
-  addDone: (state: State, slug: string, now: number, period: Period) => boolean;
+  addDone: (state: State, slug: string | Room, now: number, period: Period) => boolean;
   adjustCount: (state: State, n: number) => void;
   migrateLegacy: (raw: unknown, period: Period) => State;
   timerDelta: (wall: number, media: number, visible: boolean, playing: boolean) => number;
@@ -111,10 +116,53 @@ test('both installers are self-contained and do not automate service actions', (
     assert.match(code,/if \(!isList && !current\?\.viewing\) return/);
   }
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
-  assert.match(srCode,/@version\s+1\.1\.0/);
+  assert.match(srCode,/@version\s+1\.2\.0/);
 });
 
 test('standalone installers share the same reviewed engine without runtime dependencies', () => {
   const engine = (s: string) => s.slice(s.indexOf('(() => {')).replace(/const CONFIG = .*?;/, 'const CONFIG = {};').replace(/\r\n/g, '\n');
   assert.equal(engine(srCode), engine(mxCode));
+});
+
+test('SR parses observed listing timestamps as strict JST dates', () => {
+  assert.equal(sr.parseStartedAt('Room（2026/09/11 07:00:00）★100'),at('2026-09-11T07:00:00+09:00'));
+  for(const text of ['Room','Room (2026/02/30 07:00:00)','Room (2026/09/11 25:00:00)']) assert.equal(sr.parseStartedAt(text),null);
+});
+test('earned broadcast exclusion survives a fresh queue, count reset and 15:00', () => {
+  const old = {slug:'room-one',startedAt:at('2026-09-11T07:00:00+09:00')};
+  const history=sr.normalizeHistory([{...old,at:morning}]);
+  const nextPeriod=sr.periodAt(at('2026-09-11T15:00:00+09:00'));
+  assert.equal(sr.countDone(sr.normalizeState(null,nextPeriod),20),0);
+  assert.equal(sr.isRecorded(old,history),true);
+  assert.equal(sr.isRecorded({slug:old.slug,startedAt:null},history),true);
+  assert.equal(sr.isRecorded({slug:old.slug,startedAt:at('2026-09-11T15:01:00+09:00')},history),false);
+});
+test('new broadcasts from the same room can count independently within one period', () => {
+  const p=sr.periodAt(morning),s=sr.normalizeState(null,p);
+  sr.addDone(s,{slug:'same-room',startedAt:morning-1000},morning,p);
+  sr.addDone(s,{slug:'same-room',startedAt:morning+1000},morning+2000,p);
+  sr.addDone(s,{slug:'same-room',startedAt:morning+1000},morning+3000,p);
+  assert.equal(sr.countDone(sr.normalizeState(s,p),20),2);
+});
+test('legacy unknown-start records remain excluded until a later start is observed', () => {
+  const h=sr.normalizeHistory([{slug:'legacy',at:morning},{slug:'legacy',at:morning-1000},{slug:'bad',at:NaN}]);
+  assert.equal(h.length,1);assert.equal(sr.isRecorded({slug:'legacy',startedAt:morning-5000},h),true);
+  assert.equal(sr.isRecorded({slug:'legacy',startedAt:morning+1},h),false);
+});
+
+
+test('official home and onlive are valid entries; profiles, search and unrelated hosts are not', () => {
+  for (const url of ['https://www.showroom-live.com/','https://showroom-live.com/?genre_id=103','https://www.showroom-live.com/onlive','https://www.showroom-live.com/onlive/']) assert.equal(sr.listSource(url),'official');
+  assert.equal(sr.listSource('https://nao.qa/ap/search.php?genre=103'),'nao');
+  for (const url of ['https://www.showroom-live.com/r/a','https://www.showroom-live.com/lite/a','https://www.showroom-live.com/room/profile','https://www.showroom-live.com/room/search','https://www.showroom-live.com/onlive-fake','https://showroom-live.com.evil.test/','http://www.showroom-live.com/','https://user@www.showroom-live.com/']) assert.equal(sr.listSource(url),'');
+  assert.equal(mx.listSource('https://www.showroom-live.com/'),'');
+});
+test('return-to-list state is allowlisted and shares the same progress storage', () => {
+  assert.equal(sr.returnListUrl('https://www.showroom-live.com/?genre_id=103&token=never-save'),'https://www.showroom-live.com/?genre_id=103');
+  assert.equal(sr.returnListUrl('https://www.showroom-live.com/onlive#x'),'https://www.showroom-live.com/onlive');
+  assert.equal(sr.returnListUrl('https://evil.test/'),'https://www.showroom-live.com/');
+  const p=sr.periodAt(morning), s=sr.normalizeState({period:p.key,listUrl:'https://www.showroom-live.com/'},p);
+  assert.equal((s as State & {listUrl: string}).listUrl,'https://www.showroom-live.com/');
+  assert.match(srCode,/srmr_progress_v3/);
+  assert.match(srCode,/@namespace\s+https:\/\/nao\.qa\//);
 });

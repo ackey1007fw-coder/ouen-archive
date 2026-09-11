@@ -1,14 +1,12 @@
 // ==UserScript==
 // @name         SR Mission Runner Mobile
 // @namespace    https://nao.qa/
-// @version      1.1.0
+// @version      1.2.0
 // @description  SHOWROOMの配信を手動で視聴。時間帯ごとの端末記録・途中再開・フォロー画面への入口。公式ミッションとは非同期。
 // @author       ackey + ChatGPT
 // @match        https://nao.qa/ap/*
-// @match        https://showroom-live.com/r/*
-// @match        https://www.showroom-live.com/r/*
-// @match        https://showroom-live.com/lite/*
-// @match        https://www.showroom-live.com/lite/*
+// @match        https://showroom-live.com/*
+// @match        https://www.showroom-live.com/*
 // @grant        GM.getValue
 // @grant        GM.setValue
 // @grant        GM.deleteValue
@@ -19,7 +17,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "sr", "version": "1.1.0", "home": "https://nao.qa/ap/search.php?kw=&genre=103", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
+  const CONFIG = {"kind": "sr", "version": "1.2.0", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -59,33 +57,106 @@
     ? `https://www.showroom-live.com/lite/${slug}` : /^\d+$/.test(slug) ? `https://mixch.tv/u/${slug}/live` : '' : '';
   const profileUrl = slug => validSlug(slug) ? CONFIG.kind === 'sr'
     ? `https://www.showroom-live.com/r/${slug}` : /^\d+$/.test(slug) ? `https://mixch.tv/u/${slug}` : '' : '';
+
+  function listSource(value) {
+    try {
+      const u = new URL(value);
+      if (u.protocol !== 'https:' || u.username || u.password || u.port) return '';
+      if (CONFIG.kind === 'sr') {
+        if (u.hostname === 'nao.qa' && u.pathname.startsWith('/ap/')) return 'nao';
+        if (['showroom-live.com', 'www.showroom-live.com'].includes(u.hostname) && /^\/(?:onlive\/?)?$/.test(u.pathname)) return 'official';
+      } else if (u.hostname === 'mixch.tv' && /^\/(?:live\/?)?$/.test(u.pathname)) return 'mixch';
+      return '';
+    } catch { return ''; }
+  }
+  function returnListUrl(value) {
+    const source = listSource(value);
+    if (!source) return CONFIG.home;
+    const u = new URL(value);
+    if (source === 'mixch') return 'https://mixch.tv/';
+    if (source === 'official') {
+      const dest = new URL(u.pathname.startsWith('/onlive') ? '/onlive' : '/', 'https://www.showroom-live.com');
+      for (const key of ['genre_id', 'genre']) if (/^\d{1,5}$/.test(u.searchParams.get(key) || '')) dest.searchParams.set(key, u.searchParams.get(key));
+      return dest.href;
+    }
+    return 'https://nao.qa/ap/search.php?' + new URLSearchParams({ kw: (u.searchParams.get('kw') || '').slice(0, 100), genre: /^\d{1,5}$/.test(u.searchParams.get('genre') || '') ? u.searchParams.get('genre') : '103' });
+  }
+  // Use only rendered first-party onlive cards with an explicit live marker.
+  // A HH:MM label has no date: never fabricate a broadcast start from it.
+  function officialRooms(doc, base) {
+    const found = [];
+    for (const card of doc.querySelectorAll('article.onlivecard:not(.todays-pick)')) {
+      if (card.closest('[hidden], [aria-hidden="true"]') || !card.getClientRects().length || doc.defaultView.getComputedStyle(card).visibility === 'hidden') continue;
+      const item = card.closest('li');
+      const live = item?.querySelector('.onlivecard-time.is-onlive');
+      const a = card.querySelector('a.ga-onlive-click[href]');
+      const r = a && parseRoom(a.getAttribute('href'), base);
+      if (!r || !live || live.closest('li') !== item) continue;
+      const startedAt = parseStartedAt(live.textContent);
+      if (startedAt && startedAt > Date.now()) continue;
+      const name = item.querySelector('.onlivecard-name')?.textContent || card.querySelector('img.onlivecard-bg')?.alt || r.slug;
+      found.push({ slug: r.slug, startedAt, name: cleanName(name) });
+    }
+    return roomsOnly(found);
+  }
+
+  const validStart = n => Number.isSafeInteger(n) && n > 0 ? n : null;
+  const asRoom = r => typeof r === 'string' ? { slug: r, startedAt: null } : r;
+  const recordKey = r => `${r.slug}:${validStart(r.startedAt) || 'unknown'}`;
+  function parseStartedAt(text) {
+    const matches = [...String(text).matchAll(/[（(](\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})[）)]/g)];
+    if (!matches.length) return null;
+    const [y,m,d,h,mi,se] = matches.at(-1).slice(1).map(Number);
+    const t = Date.UTC(y,m-1,d,h,mi,se), dt = new Date(t);
+    if (y < 2000 || y > 2100 || dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m-1 || dt.getUTCDate() !== d || h > 23 || mi > 59 || se > 59) return null;
+    return t - 9 * HOUR;
+  }
+
+  // One high-water mark per room survives queue restarts and period changes.
+  // A later observed start is eligible; unknown/stale starts stay excluded.
+  function normalizeHistory(value) {
+    const result = new Map();
+    for (const r of Array.isArray(value) ? value : []) {
+      if (!r || !liveUrl(r.slug) || !Number.isSafeInteger(r.at) || r.at <= 0) continue;
+      const startedAt = validStart(r.startedAt);
+      if (startedAt && startedAt > r.at) continue;
+      if (!result.has(r.slug) || result.get(r.slug).at < r.at) result.set(r.slug, { slug: r.slug, startedAt, at: r.at });
+    }
+    return [...result.values()];
+  }
+  function isRecorded(room, records) {
+    const r = asRoom(room);
+    return records.some(d => d.slug === r.slug && (CONFIG.kind !== 'sr' || !validStart(r.startedAt) || r.startedAt <= d.at));
+  }
+
   function roomsOnly(value) {
     if (!Array.isArray(value)) return [];
     const seen = new Set();
     return value.slice(0, 300).filter(r => {
       if (!r || !liveUrl(r.slug) || seen.has(r.slug)) return false;
       seen.add(r.slug); return true;
-    }).map(r => ({ slug: r.slug, name: cleanName(r.name || r.slug) }));
+    }).map(r => ({ slug: r.slug, name: cleanName(r.name || r.slug), startedAt: validStart(r.startedAt) }));
   }
   function normalizeState(value, period) {
     const s = value && value.period === period.key ? value : {};
     const seen = new Set();
     const done = (Array.isArray(s.done) ? s.done : []).filter(r => {
-      if (!r || !liveUrl(r.slug) || !Number.isFinite(r.at) || r.at < period.start || r.at >= period.end || seen.has(r.slug)) return false;
-      seen.add(r.slug); return true;
-    }).slice(0, 300).map(r => ({ slug: r.slug, at: r.at }));
+      if (!r || !liveUrl(r.slug) || !Number.isFinite(r.at) || r.at < period.start || r.at >= period.end || seen.has(recordKey(r)) || (validStart(r.startedAt) && r.startedAt > r.at)) return false;
+      seen.add(recordKey(r)); return true;
+    }).slice(0, 300).map(r => ({ slug: r.slug, startedAt: validStart(r.startedAt), at: r.at }));
     const queue = roomsOnly(s.queue);
     const index = integer(s.index, 0, Math.max(0, queue.length - 1), 0);
     const cp = s.checkpoint;
-    return { period: period.key, done, adjustment: integer(s.adjustment, -300, 100, 0), queue, index,
+    return { period: period.key, listUrl: returnListUrl(s.listUrl), done, adjustment: integer(s.adjustment, -300, 100, 0), queue, index,
       run: typeof s.run === 'string' ? s.run.slice(0, 100) : '', active: s.active === true && queue.length > 0,
       checkpoint: cp && validSlug(cp.slug) && Number.isFinite(cp.elapsed) && cp.elapsed >= 0 && cp.elapsed <= 120000
-        ? { slug: cp.slug, elapsed: cp.elapsed } : null };
+        ? { slug: cp.slug, startedAt: validStart(cp.startedAt), elapsed: cp.elapsed } : null };
   }
   const countDone = (s, target) => Math.max(0, Math.min(target, s.done.length + s.adjustment));
-  function addDone(s, slug, now, period) {
-    if (s.period !== period.key || now < period.start || now >= period.end || !liveUrl(slug)) return false;
-    if (!s.done.some(r => r.slug === slug)) s.done.push({ slug, at: now });
+  function addDone(s, room, now, period) {
+    const r = asRoom(room);
+    if (s.period !== period.key || now < period.start || now >= period.end || !liveUrl(r.slug)) return false;
+    if (!isRecorded(r, s.done)) s.done.push({ slug: r.slug, startedAt: validStart(r.startedAt), at: now });
     s.checkpoint = null;
     return true;
   }
@@ -99,7 +170,7 @@
     return visible && playing && wall > 0 && wall <= 1500 && mediaDelta > 0 && mediaDelta <= 2
       ? Math.min(wall, mediaDelta * 1000, 1000) : 0;
   }
-  const api = { periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, roomsOnly };
+  const api = { listSource, returnListUrl, officialRooms, parseStartedAt, normalizeHistory, isRecorded, recordKey, periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, roomsOnly };
   if (typeof document === 'undefined') {
     if (typeof module !== 'undefined') module.exports = api;
     return;
@@ -114,8 +185,8 @@
 
   async function main() {
     const current = parseRoom(location.href);
-    const isList = CONFIG.kind === 'sr' ? location.hostname === 'nao.qa' && location.pathname.startsWith('/ap/')
-      : location.hostname === 'mixch.tv' && /^\/(?:live\/?)?$/.test(location.pathname);
+    const source = listSource(location.href);
+    const isList = !!source;
     // Normal profile/follow pages must never be redirected or timed.
     if (!isList && !current?.viewing) return;
     if (document.getElementById(CONFIG.id)) return;
@@ -132,13 +203,26 @@
       return normalizeState(raw, p);
     }
     let state = await readState(period);
+    const backUrl = isList ? returnListUrl(location.href) : returnListUrl(state.listUrl);
+    const historyKey = `${prefix}_broadcast_history`;
+    const readHistory = async () => CONFIG.kind === 'sr' ? normalizeHistory(await GM.getValue(historyKey, [])) : [];
+    let history = await readHistory();
+    if (CONFIG.kind === 'sr') {
+      const legacy = await GM.getValue('srmr_mobile_session_v2', null);
+      const seed = await GM.getValue(`${historyKey}_seeded`, false);
+      history = normalizeHistory([...history, ...state.done, ...(!seed && Array.isArray(legacy?.completed) ? legacy.completed : [])]);
+      await GM.setValue(historyKey, history); await GM.setValue(`${historyKey}_seeded`, true);
+    }
     await GM.setValue(storageKey(period), state);
     let busy = false, elapsed = 0, paused = false, ready = false, notice = '', ended = false, boundaryStop = false;
     let lastWall = performance.now(), lastMedia = null, lastTime = null, pending = Promise.resolve();
     const titleFromPage = () => cleanName(document.querySelector('h1')?.textContent || document.title || current?.slug);
     const activeHere = () => !isList && state.active && state.queue[state.index]?.slug === current.slug && !ended;
+    const roomHere = () => state.queue[state.index]?.slug === current?.slug ? state.queue[state.index] : { slug: current?.slug, startedAt: null };
+    const blocked = r => isRecorded(r, [...history, ...state.done]);
+    const blockedHere = () => !isList && blocked(roomHere());
     function resetTimer() {
-      elapsed = activeHere() && state.checkpoint?.slug === current.slug ? Math.min(state.checkpoint.elapsed, prefs.seconds * 1000) : 0;
+      elapsed = activeHere() && state.checkpoint && recordKey(state.checkpoint) === recordKey(roomHere()) ? Math.min(state.checkpoint.elapsed, prefs.seconds * 1000) : 0;
       ready = elapsed >= prefs.seconds * 1000;
       lastWall = performance.now(); lastMedia = null; lastTime = null;
     }
@@ -161,22 +245,24 @@
       .compact .fold,.compact details,.compact .name,.compact .time{display:none}.box.compact{padding:8px 12px}
     </style><div class="box">
       <div class="top"><strong id="title"></strong><button id="compact" class="small">小さく</button></div>
-      <div class="sub" id="period"></div><div class="progress" id="total"></div>
+      <div class="sub" id="source"></div><div class="sub" id="period"></div><div class="progress" id="total"></div>
       <div class="sub name" id="name"></div><div class="time" id="time"></div><div class="status" id="status" role="status"></div>
       <div class="row" id="listControls"><select id="seconds" aria-label="視聴目安秒数"><option value="30">30秒</option><option value="32">32秒</option><option value="35">35秒</option></select><select id="target" aria-label="目標ルーム数"><option value="10">10件</option><option value="20">20件</option></select><button class="primary" id="start">続きから開始</button></div>
       <div class="row" id="watchControls"><button class="primary" id="next" disabled>記録して次へ</button><button id="skip">スキップ</button></div>
-      <div class="row fold" id="discover"><a class="action" id="follow" target="_blank" rel="noopener noreferrer">♡ フォロー画面</a><button id="favorite">☆ あとで見る</button></div>
+      <div class="row fold" id="discover"><a class="action" id="follow" target="_blank" rel="noopener noreferrer">♡ フォロー画面</a><button id="favorite">☆ あとで見る</button></div><div class="row fold" id="excludeControls"><button id="exclude">取得済みなので除外</button></div>
       <div class="row fold" id="pauseControls"><button id="pause">一時停止</button><button id="back">中断・一覧へ</button></div>
       <details class="fold"><summary>記録の調整・あとで見る</summary>
-        <div class="note">この端末の記録です。公式の達成・受取件数とは同期しません。別アプリで視聴した分は件数を合わせてください。同一期間・同一ルームは重複計上しません。</div>
+        <div class="note">この端末の記録です。公式の達成・受取件数とは同期しません。別アプリで視聴した分は件数を合わせてください。取得済みの配信をこの端末に記録して除外します。開始時刻が分からない記録済みルームも安全側で除外します。</div>
         <div class="row"><label>確認した件数 <input id="actual" type="number" min="0" max="20" value="0" inputmode="numeric"></label><button id="adjust">件数を合わせる</button></div>
-        <div class="row"><button id="reset">この枠の記録を消す</button></div><div id="favorites"></div>
+        <div class="row"><button id="reset">この枠の件数をリセット</button></div><div id="favorites"></div>
         <div class="note">保存先はこのUserscriptsのローカル領域です。お気に入りは時間帯が変わっても残ります。複数アカウント・端末とは自動同期しません。</div>
       </details><div class="note fold" id="caution"></div>
     </div>`;
     document.body.appendChild(host);
     const el = id => root.getElementById(id);
     el('title').textContent = `${CONFIG.title} v${CONFIG.version}`;
+    el('source').textContent = isList ? source === 'official' ? '公式の配信中一覧から開始' : source === 'nao' ? 'nao.qa の配信中一覧から開始' : 'ミクチャの配信中一覧から開始' : '';
+    el('source').hidden = !isList;
     el('seconds').value = String(prefs.seconds); el('target').value = String(prefs.target);
     el('caution').textContent = CONFIG.kind === 'sr'
       ? '目安到達はミッション成立ではありません。公式の達成・受取を確認してください。切替をまたぐ同じ配信では再達成できません。手動補助の規約適合も保証しません。'
@@ -184,6 +270,7 @@
     if (!isList) el('follow').href = profileUrl(current.slug);
 
     function listRooms() {
+      if (source === 'official') return officialRooms(document, location.href);
       const scope = CONFIG.kind === 'sr' ? document.querySelector('#roomlist') : document;
       if (!scope) return [];
       const found = [];
@@ -193,11 +280,13 @@
         if (a.closest('[hidden]')) continue;
         const row = a.closest('tr')?.querySelector('td:first-child');
         const text = row?.textContent || a.getAttribute('title') || a.textContent || r.slug;
-        found.push({ slug: r.slug, name: cleanName(text.split(/\(\d{4}\/\d{2}\/\d{2}/)[0]) });
+        const startedAt = CONFIG.kind === 'sr' ? parseStartedAt(text) : null;
+        if (startedAt && startedAt > Date.now()) continue;
+        found.push({ slug: r.slug, startedAt, name: cleanName(text.split(/[（(]\d{4}\/\d{2}\/\d{2}/)[0]) });
       }
       return roomsOnly(found);
     }
-    function available() { return listRooms().filter(r => !state.done.some(d => d.slug === r.slug)); }
+    function available() { return listRooms().filter(r => !blocked(r)); }
     function renderFavorites() {
       el('favorites').replaceChildren();
       for (const r of favorites) {
@@ -220,24 +309,27 @@
       el('watchControls').hidden = isList;
       el('pauseControls').hidden = isList;
       el('discover').hidden = isList;
+      el('excludeControls').hidden = isList || CONFIG.kind !== 'sr';
+      el('exclude').disabled = busy || blockedHere();
       el('time').hidden = isList;
       if (isList) {
-        const candidates = available();
-        el('name').textContent = `この一覧の未記録 ${candidates.length}ルーム`;
+        const allRooms = listRooms();
+        const candidates = allRooms.filter(r => !blocked(r));
+        el('name').textContent = `この一覧の未記録 ${candidates.length}ルーム / 記録済み ${allRooms.length - candidates.length}件は候補外`;
         el('start').textContent = count ? `残り${left}件を続ける ▶` : '開始 ▶';
         el('start').disabled = busy || !left || !candidates.length;
-        el('status').textContent = notice || (left ? '途中で閉じても、この枠の記録は残ります。' : '目標件数まで記録済み。公式の結果も確認してください。');
+        el('status').textContent = notice || (!allRooms.length ? '配信中カードの読込待ち。配信一覧を表示するか、ページを更新してください。' : left ? '途中で閉じても、この枠の記録は残ります。' : '目標件数まで記録済み。公式の結果も確認してください。');
       } else {
         const room = state.queue.find(r => r.slug === current.slug);
         el('name').textContent = room?.name || titleFromPage();
-        const counted = state.done.some(d => d.slug === current.slug);
+        const counted = blockedHere();
         el('time').textContent = counted ? '記録済み' : ready ? '目安到達' : String(Math.max(0, Math.ceil(prefs.seconds - elapsed / 1000)));
-        el('next').textContent = !activeHere() ? 'この配信を計測' : ready ? '記録して次へ ▶' : '再生を確認中';
-        el('next').disabled = busy || boundaryStop || !left || (activeHere() && !ready);
+        el('next').textContent = counted && activeHere() ? '次の未記録へ ▶' : !activeHere() ? 'この配信を計測' : ready ? '記録して次へ ▶' : '再生を確認中';
+        el('next').disabled = busy || boundaryStop || !left || (activeHere() && !ready && !counted) || (!activeHere() && counted);
         el('skip').disabled = busy || !activeHere();
         el('pause').disabled = busy || !activeHere();
         el('pause').textContent = paused ? '再開' : '一時停止';
-        el('status').textContent = notice || (counted ? '同じ枠で記録済み。二重計上はしません。' : !activeHere() ? '計測を始めるか、一覧から続けてください。' : paused ? '一時停止中' : ready ? '公式側を確認してから、記録して次へ進んでください。' : '映像・音声の再生進行中だけ計測。未再生・停止・画面外は数えません。');
+        el('status').textContent = notice || (counted ? 'この配信は記録済み。計測・再計上せず、候補から外します。' : !activeHere() ? '計測を始めるか、一覧から続けてください。' : paused ? '一時停止中' : ready ? '公式側を確認してから、記録して次へ進んでください。' : '映像・音声の再生進行中だけ計測。未再生・停止・画面外は数えません。');
         el('favorite').textContent = favorites.some(r => r.slug === current.slug) ? '★ 保存済み' : '☆ あとで見る';
       }
       el('adjust').disabled = busy; el('reset').disabled = busy;
@@ -245,7 +337,7 @@
     async function rollover() {
       const p = periodAt(Date.now());
       if (p.key === period.key) return false;
-      period = p; state = await readState(p); await GM.setValue(storageKey(p), state);
+      period = p; history = await readHistory(); state = await readState(p); if (!state.active) state.listUrl = backUrl; await GM.setValue(storageKey(p), state);
       ended = true; elapsed = 0; ready = false; lastTime = null; lastMedia = null;
       boundaryStop = CONFIG.kind === 'sr' && !isList;
       notice = boundaryStop ? '時間帯が切り替わりました。同じ配信の継続では再達成できません。一覧に戻り、別の配信へ進んでください。' : '時間帯が切り替わりました。新しい枠の記録に切り替えています。';
@@ -260,7 +352,8 @@
         if (requireActive && (!latest.active || latest.run !== runId || latest.index !== expectedIndex)) {
           state = latest; ended = true; notice = '別の画面で進んだため、この画面の計測を停止しました。'; render(); return false;
         }
-        fn(latest); await GM.setValue(storageKey(p), latest);
+        history = await readHistory();
+        await fn(latest); await GM.setValue(storageKey(p), latest);
         if (period.key === p.key) state = latest;
         return true;
       });
@@ -274,16 +367,23 @@
       catch { paused = true; notice = '保存できませんでした。移動せず再読み込みし、記録を確認してください。'; }
       finally { busy = false; render(); }
     }
+    async function remember(room, at = Date.now()) {
+      if (CONFIG.kind !== 'sr') return;
+      const latest = await readHistory();
+      history = normalizeHistory([...latest, { slug: room.slug, startedAt: validStart(room.startedAt), at }]);
+      await GM.setValue(historyKey, history);
+    }
     function bind(id, fn) { el(id).addEventListener('click', () => void run(fn)); }
-    const checkpoint = () => activeHere() ? transact(s => { s.checkpoint = { slug: current.slug, elapsed }; }, true) : Promise.resolve(true);
+    const checkpoint = () => activeHere() ? transact(s => { s.checkpoint = { slug: current.slug, startedAt: validStart(roomHere().startedAt), elapsed }; }, true) : Promise.resolve(true);
     bind('start', async () => {
+      await pending; history = await readHistory(); state = await readState(period);
       const rooms = available();
       if (!rooms.length) return;
       if (state.checkpoint) {
-        const i = rooms.findIndex(r => r.slug === state.checkpoint.slug);
+        const i = rooms.findIndex(r => recordKey(r) === recordKey(state.checkpoint));
         if (i > 0) rooms.unshift(...rooms.splice(i, 1));
       }
-      const ok = await transact(s => { s.queue = rooms.filter(r => !s.done.some(d => d.slug === r.slug)); s.index = 0; s.active = s.queue.length > 0; s.run = `${Date.now()}-${Math.random()}`; });
+      const ok = await transact(s => { s.listUrl = returnListUrl(location.href); s.queue = rooms.filter(r => !isRecorded(r, [...history, ...s.done])); s.index = 0; s.active = s.queue.length > 0; s.run = `${Date.now()}-${Math.random()}`; });
       if (ok && state.active && periodAt(Date.now()).key === period.key) location.assign(liveUrl(state.queue[0].slug));
     });
     async function advance(skip) {
@@ -293,14 +393,18 @@
         const ok = await transact(s => { s.queue = [{ slug: current.slug, name: titleFromPage() }]; s.index = 0; s.run = `${Date.now()}-${Math.random()}`; s.active = true; });
         if (ok) { ended = false; notice = ''; resetTimer(); } return;
       }
-      if (!skip && !ready) return;
+      if (!skip && !ready && !blockedHere()) return;
       let destination = '';
-      const ok = await transact(s => {
-        if (!skip) addDone(s, current.slug, Date.now(), period);
+      const ok = await transact(async s => {
+        const room = s.queue[s.index], at = Date.now();
+        if (!skip && !isRecorded(room, [...history, ...s.done])) {
+          if (!addDone(s, room, at, period)) throw new Error('Period changed');
+          await remember(room, at);
+        }
         s.checkpoint = null;
         if (countDone(s, prefs.target) < prefs.target) {
           for (let i = s.index + 1; i < s.queue.length; i++) {
-            if (!s.done.some(r => r.slug === s.queue[i].slug)) { s.index = i; destination = liveUrl(s.queue[i].slug); break; }
+            if (!isRecorded(s.queue[i], [...history, ...s.done])) { s.index = i; destination = liveUrl(s.queue[i].slug); break; }
           }
         }
         if (!destination) s.active = false;
@@ -310,8 +414,13 @@
       else { ended = true; notice = countDone(state, prefs.target) >= prefs.target ? '目標まで記録しました。公式の結果・受取も確認してください。' : 'この一覧はここまで。中断・一覧へ戻ると、残りから続けられます。'; }
     }
     bind('next', () => advance(false)); bind('skip', () => advance(true));
+    bind('exclude', async () => {
+      await remember(roomHere());
+      notice = '取得済みとして候補から除外しました。件数は増やしていません。';
+      if (activeHere()) await advance(true);
+    });
     bind('pause', async () => { paused = !paused; lastTime = null; await checkpoint(); });
-    bind('back', async () => { await checkpoint(); location.assign(CONFIG.home); });
+    bind('back', async () => { await checkpoint(); location.assign(backUrl); });
     bind('favorite', async () => {
       favorites = roomsOnly(await GM.getValue(`${prefix}_favorites`, []));
       if (favorites.some(r => r.slug === current.slug)) favorites = favorites.filter(r => r.slug !== current.slug);
@@ -324,9 +433,10 @@
       await transact(s => adjustCount(s, n)); notice = 'この端末の記録件数を合わせました。公式側は変更していません。';
     });
     bind('reset', async () => {
-      if (!window.confirm('この時間帯の端末記録だけを消しますか？公式のミッション・報酬・フォローは変更しません。')) return;
+      const message = CONFIG.kind === 'sr' ? 'この時間帯の件数だけをリセットしますか？取得済み配信の除外履歴とお気に入りは残します。公式側は変更しません。' : '今日の端末の視聴記録をリセットしますか？お気に入りと公式側は変更しません。';
+      if (!window.confirm(message)) return;
       await transact(s => Object.assign(s, normalizeState(null, period)));
-      ended = true; resetTimer(); notice = 'この枠の端末記録をリセットしました。';
+      ended = true; resetTimer(); notice = CONFIG.kind === 'sr' ? '件数をリセットしました。取得済み配信の除外履歴は残っています。' : '今日の端末の視聴記録をリセットしました。';
     });
     for (const id of ['seconds', 'target']) el(id).addEventListener('change', () => void run(async () => {
       prefs.seconds = [30, 32, 35].includes(Number(el('seconds').value)) ? Number(el('seconds').value) : 32;
@@ -340,7 +450,7 @@
     setInterval(() => {
       if (periodAt(Date.now()).key !== period.key) { void run(async () => {}); return; }
       const now = performance.now(), wall = now - lastWall; lastWall = now;
-      if (!activeHere() || paused || busy || ready || document.hidden) { lastMedia = null; lastTime = null; return; }
+      if (!activeHere() || blockedHere() || paused || busy || ready || document.hidden) { lastMedia = null; lastTime = null; return; }
       const media = [...document.querySelectorAll('video,audio')].find(m => !m.paused && !m.ended && !m.error && m.readyState >= 2);
       const time = media && Number.isFinite(media.currentTime) ? media.currentTime : null;
       elapsed += timerDelta(wall, media === lastMedia && time !== null && lastTime !== null ? time - lastTime : 0, true, !!media);
@@ -348,7 +458,7 @@
       if (elapsed >= prefs.seconds * 1000) { elapsed = prefs.seconds * 1000; ready = true; }
       render();
     }, 250);
-    setInterval(() => { if (!busy) void run(async () => { if (activeHere()) await checkpoint(); else state = await readState(period); }); }, 2500);
+    setInterval(() => { if (!busy) void run(async () => { history = await readHistory(); if (activeHere()) await checkpoint(); else state = await readState(period); }); }, 2500);
     renderFavorites(); render();
   }
 })();

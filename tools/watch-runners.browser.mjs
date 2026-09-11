@@ -16,10 +16,12 @@ const targets = [
   {kind:'sr',file:'SR-Mission-Runner-Mobile.user.js',prefix:'srmr_progress_v3',id:'srmr-mobile',home:'https://nao.qa/ap/search.php?kw=&genre=103',one:'room-one',two:'room-two',live:s=>`https://www.showroom-live.com/lite/${s}`,profile:s=>`https://www.showroom-live.com/r/${s}`},
   {kind:'mx',file:'Mixch-Watch-Helper-Mobile.user.js',prefix:'mxwh_progress_v1',id:'mxwh-mobile',home:'https://mixch.tv/',one:'100001',two:'100002',live:s=>`https://mixch.tv/u/${s}/live`,profile:s=>`https://mixch.tv/u/${s}`}
 ];
+targets.push({...targets[0],scenario:'sr-official',home:'https://www.showroom-live.com/'});
 const browser = await playwright[engine].launch({headless:true});
 try {
   for (const target of targets) for (const width of [390,430,1280]) {
     const store = new Map(), errors = [], navigations = [];
+    let firstStart='2026/09/11 07:00:00';
     const context = await browser.newContext({viewport:{width,height:844},isMobile:width<500,hasTouch:width<500,timezoneId:'America/Los_Angeles',locale:'ja-JP'});
     const source = await readFile(join(repo,target.file),'utf8');
     await context.exposeBinding('fixtureGet',(_source,key,def)=>store.has(key)?structuredClone(store.get(key)):def);
@@ -41,9 +43,12 @@ try {
       const request=route.request();
       if(request.isNavigationRequest())navigations.push(request.url());
       const u=new URL(request.url());
-      const list=request.url()===target.home || (target.kind==='mx'&&u.pathname==='/');
+      const official=target.kind==='sr' && u.hostname==='www.showroom-live.com' && ['/', '/onlive'].includes(u.pathname);
+      const list=request.url()===target.home || (target.kind==='sr'&&u.hostname==='nao.qa') || (target.kind==='mx'&&u.pathname==='/');
       const profile=request.url()===target.profile(target.one);
-      const body=list?`<h1>Fixture rooms</h1><div id="roomlist"><a href="${target.kind==='sr'?target.profile(target.one):target.live(target.one)}">Test room one</a><a href="${target.live(target.one)}">duplicate</a><a href="${target.live(target.two)}">Test room two</a><a href="https://evil.test/r/not-a-room">untrusted</a></div><div id="upcomingroomlist"><a href="https://www.showroom-live.com/r/upcoming">Not live</a></div>`:profile?'<h1>Fixture profile</h1><button>Follow</button>':'<h1>Test live player</h1><video style="display:block;background:#eee;width:100%;height:220px" playsinline></video>';
+      const card=(slug,{live=true,extra='',style='',href=`/r/${slug}`,hidden=''}={})=>`<li style="${style}" ${hidden}><article class="onlivecard ${extra}"><div class="onlivecard-overview"><a class="ga-onlive-click" href="${href}">入室</a></div></article><div class="onlivecard-time ${live?'is-onlive':''}">07:00〜</div><p class="onlivecard-name">Test ${slug}</p></li>`;
+      const officialHtml=`<h1>Official fixture</h1><a href="/r/profile-only">Profile only</a><ul>${card(target.one)}${card(target.two)}${card(target.one)}${card('ended',{live:false})}${card('pick',{extra:'todays-pick'})}${card('hidden',{style:'display:none'})}${card('aria-hidden',{hidden:'aria-hidden="true"'})}${card('untrusted',{href:'https://evil.test/r/outsider'})}</ul>`;
+      const body=official?officialHtml:list?`<h1>Fixture rooms</h1><div id="roomlist"><a href="${target.kind==='sr'?target.profile(target.one):target.live(target.one)}">Test room one (${firstStart})</a><a href="${target.live(target.one)}">duplicate (${firstStart})</a><a href="${target.live(target.two)}">Test room two (2026/09/11 07:30:00)</a><a href="https://evil.test/r/not-a-room">untrusted</a></div><div id="upcomingroomlist"><a href="https://www.showroom-live.com/r/upcoming">Not live</a></div>`:profile?'<h1>Fixture profile</h1><button>Follow</button>':'<h1>Test live player</h1><video style="display:block;background:#eee;width:100%;height:220px" playsinline></video>';
       await route.fulfill({status:200,contentType:'text/html',body:`<!doctype html><html lang="ja"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Watch helper fixture</title></head><body>${body}</body></html>`});
     });
     const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
@@ -53,7 +58,7 @@ try {
     const settle=async()=>{await page.waitForTimeout(150);};
     const checkText=async(id,regex)=>assert.match(await part(id).innerText(),regex);
     const passed=[];
-    const check=async(name,fn)=>{await fn();passed.push(name);console.log(`PASS ${target.kind}-${width}: ${name}`);};
+    const check=async(name,fn)=>{await fn();passed.push(name);console.log(`PASS ${target.scenario||target.kind}-${width}: ${name}`);};
     try {
       await page.goto(target.home);await panel().waitFor();
       await check('list is deduplicated and future/untrusted rooms are excluded',async()=>{await checkText('name',/未記録 2ルーム/);assert.equal(navigations.length,1);});
@@ -81,17 +86,51 @@ try {
         await checkText('time',/目安到達/);await checkText('total',/10 \/ 20/);assert.equal(page.url(),target.live(target.one));
         await part('next').click();await page.waitForURL(target.live(target.two));await panel().waitFor();await checkText('total',/11 \/ 20.*あと9件/);
       });
+      await check('returning to the list and restarting does not re-enter the recorded first broadcast',async()=>{
+        await part('back').click();await page.waitForURL(target.home);await panel().waitFor();
+        await checkText('name',/未記録 1ルーム.*記録済み 1件/);await checkText('total',/11 \/ 20/);
+        await part('start').click();await page.waitForURL(target.live(target.two));await panel().waitFor();
+      });
       await check('new boundary clears this period, leaves bookmarks, and does not auto-navigate',async()=>{
         const boundary=target.kind==='sr'?'2026-09-11T15:00:00+09:00':'2026-09-12T00:00:00+09:00';
         await page.clock.setSystemTime(new Date(boundary));await page.clock.runFor(1000);await settle();await checkText('total',/0 \/ 20.*あと20件/);await checkText('time',/^32$/);assert.equal(store.get(`${target.prefix}_favorites`).length,1);assert.equal(page.url(),target.live(target.two));
       });
+
+      if(target.kind==='sr' && target.scenario!=='sr-official') await check('earned broadcast exclusions outlive 15:00 and count resets; later broadcasts are eligible',async()=>{
+        await part('back').click();await page.waitForURL(target.home);await panel().waitFor();
+        await checkText('name',/未記録 1ルーム.*記録済み 1件/);
+        await part('start').click();await page.waitForURL(target.live(target.two));await panel().waitFor();
+        await part('exclude').click();await settle();await checkText('total',/0 \/ 20/);
+        await part('back').click();await page.waitForURL(target.home);await panel().waitFor();
+        await checkText('name',/未記録 0ルーム.*記録済み 2件/);
+        await panel().locator('summary').click();page.once('dialog',d=>d.accept());await part('reset').click();await settle();
+        await checkText('name',/未記録 0ルーム.*記録済み 2件/);
+
+        firstStart='2026/09/11 15:01:00';await page.clock.setSystemTime(new Date('2026-09-11T15:05:00+09:00'));
+        await page.reload();await panel().waitFor();await checkText('name',/未記録 1ルーム.*記録済み 1件/);
+        await part('start').click();await page.waitForURL(target.live(target.one));await panel().waitFor();
+        await checkText('time',/^32$/);await checkText('total',/0 \/ 20/);
+      });
+      if(target.scenario==='sr-official') await check('official, nao and onlive share earned exclusions and return to the originating list',async()=>{
+        await part('back').click();await page.waitForURL(target.home);await panel().waitFor();
+        await checkText('source',/公式/);await checkText('name',/未記録 1ルーム.*記録済み 1件/);
+        await page.goto('https://nao.qa/ap/search.php?kw=&genre=103');await panel().waitFor();
+        await checkText('source',/nao/);await checkText('name',/未記録 1ルーム.*記録済み 1件/);await checkText('total',/0 \/ 20/);
+        await page.goto('https://www.showroom-live.com/onlive');await panel().waitFor();
+        await checkText('source',/公式/);await checkText('name',/未記録 1ルーム.*記録済み 1件/);
+        await part('start').click();await page.waitForURL(target.live(target.two));await panel().waitFor();
+        const active=[...store.values()].find(v=>v?.active===true && v.listUrl==='https://www.showroom-live.com/onlive');
+        assert.ok(active);assert.equal(active.queue[0].startedAt,null);
+        await part('back').click();await page.waitForURL('https://www.showroom-live.com/onlive');await panel().waitFor();
+        await part('start').click();await page.waitForURL(target.live(target.two));await panel().waitFor();
+      });
       await check('responsive compact control fits the viewport',async()=>{
         assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
-        await panel().screenshot({path:join(output,`${target.kind}-${width}.png`)});
+        await panel().screenshot({path:join(output,`${target.scenario||target.kind}-${width}.png`)});
         await part('compact').click();assert.equal(await part('follow').isVisible(),false);await part('compact').click();assert.equal(await part('follow').isVisible(),true);assert.deepEqual(errors,[]);
       });
-      report.results.push({kind:target.kind,width,passed,status:'passed'});
-    } catch(e){report.results.push({kind:target.kind,width,passed,status:'failed',error:e.message});await page.screenshot({path:join(output,`${target.kind}-${width}-failure.png`)});throw e;}
+      report.results.push({kind:target.kind,scenario:target.scenario||target.kind,width,passed,status:'passed'});
+    } catch(e){report.results.push({kind:target.kind,scenario:target.scenario||target.kind,width,passed,status:'failed',error:e.message});await page.screenshot({path:join(output,`${target.scenario||target.kind}-${width}-failure.png`)});throw e;}
     finally {await context.close();}
   }
 } finally {await browser.close();await writeFile(join(output,'report.json'),JSON.stringify(report,null,2)+'\n');}
