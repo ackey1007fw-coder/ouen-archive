@@ -47,7 +47,7 @@ try{for(const width of [390,430,1280]){
   try{
     await page.goto('https://mixch.tv/u/100001');await tick();
     await check('Mixch unsupported profile stays untouched',async()=>assert.equal(await page.locator('#'+id).count(),0));
-    await check('Mixch soft navigation into a live room mounts the correct panel',async()=>{await soft('/u/100001/live',live);await part('title').waitFor();assert.match(await part('title').innerText(),/v0\.2\.0/);assert.equal(await part('watchControls').isVisible(),true);});
+    await check('Mixch soft navigation into a live room mounts the correct panel',async()=>{await soft('/u/100001/live',live);await part('title').waitFor();assert.match(await part('title').innerText(),/v0\.2\.1/);assert.equal(await part('watchControls').isVisible(),true);});
     await part('next').click();await tick(2000);assert.equal(await part('time').innerText(),'32');
     await page.evaluate(()=>{window.fixturePaused=false;});await tick(4500);
     await check('Mixch detached panel is restored without resetting or duplicating its timer',async()=>{const before=Number(await part('time').innerText());await page.evaluate(()=>document.getElementById('mxwh-mobile').remove());await tick();assert.equal(await page.locator('#'+id).count(),1);assert.ok(Number(await part('time').innerText())<=before);});
@@ -55,19 +55,24 @@ try{for(const width of [390,430,1280]){
     await check('Mixch duplicate injection leaves a single active panel',async()=>{await page.evaluate(mx);await tick();assert.equal(await page.locator('#'+id).count(),1);});
     await part('next').click();await tick();await part('favorite').click();await tick();
     await check('Mixch return to profile removes the panel and keeps bookmarks',async()=>{await soft('/u/100002','<h1>Profile</h1>');assert.equal(await page.locator('#'+id).count(),0);assert.equal(store.get('mxwh_progress_v1_favorites').length,1);});
-    await check('Mixch restoration on the list uses list controls and no official network reads',async()=>{await soft('/','<a href="/u/100003/live">New fixture live</a>');assert.equal(await part('listControls').isVisible(),true);assert.equal(await part('officialBox').isVisible(),false);assert.equal(requests.length,0);});
+    await check('Mixch restoration on the list uses list controls and no official network reads',async()=>{await soft('/','<a href="/u/100003/live">Cached room A</a><a href="/u/100004/live">Cached room B</a>');assert.equal(await part('listControls').isVisible(),true);assert.equal(await part('officialBox').isVisible(),false);assert.equal(requests.length,0);});
+    await check('Mixch direct-room measurement can continue to the next cached list candidate',async()=>{
+      await tick(1200);await soft('/u/100003/live',live);await part('next').click();await tick();
+      await page.evaluate(()=>{window.fixturePaused=false;});await tick(45000);assert.match(await part('time').innerText(),/目安到達/);
+      await part('next').click();await page.waitForURL('https://mixch.tv/u/100004/live');await part('title').waitFor();assert.match(await part('time').innerText(),/^32$/);
+    });
     await page.locator('#'+id).screenshot({path:join(output,`mixch-lifecycle-${width}.png`)});
     await page.goto('https://www.showroom-live.com/');id='srmr-mobile';await tick();
     await check('SHOWROOM progress read is off by default',async()=>{assert.equal(requests.length,0);assert.equal(await part('officialAuto').isChecked(),false);});
-    await part('officialBox').locator('summary').click();const beforeStore=JSON.stringify([...store]);
-    await check('SHOWROOM explicit read displays exact mission progress without changing local records',async()=>{await part('officialRead').click();await page.waitForFunction(()=>document.querySelector('#srmr-mobile')?.shadowRoot?.getElementById('officialResult')?.textContent.includes('8/20'));assert.equal(requests.length,1);assert.match(await part('total').innerText(),/0 \/ 20/);assert.equal(JSON.stringify([...store]),beforeStore);});
+    await part('officialBox').locator('summary').click();const recordStore=()=>JSON.stringify([...store].filter(([k])=>!k.endsWith('_recent_list')));const beforeStore=recordStore();
+    await check('SHOWROOM explicit read displays exact mission progress without changing local records',async()=>{await part('officialRead').click();await page.waitForFunction(()=>document.querySelector('#srmr-mobile')?.shadowRoot?.getElementById('officialResult')?.textContent.includes('8/20'));assert.equal(requests.length,1);assert.match(await part('total').innerText(),/0 \/ 20/);assert.equal(recordStore(),beforeStore);});
     await check('SHOWROOM manual repeated clicks are rate-limited',async()=>{await part('officialRead').click();await tick(1000);assert.equal(requests.length,1);});
     await check('SHOWROOM progress UI fits each viewport',async()=>{assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.locator('#'+id).screenshot({path:join(output,`official-progress-${width}.png`)});});
     await tick(6000);await part('officialAuto').check();await tick(1000);const autoStart=requests.length;
     await check('SHOWROOM opt-in refresh occurs after 60 seconds',async()=>{await tick(62000);assert.ok(requests.length>autoStart);});
     await check('SHOWROOM never polls while hidden',async()=>{await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'));});const n=requests.length;await tick(65000);assert.equal(requests.length,n);await page.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));});await part('officialAuto').uncheck();});
-    await check('SHOWROOM missing data stays unknown and stops automatic retries',async()=>{mode='empty';await tick(6000);await part('officialAuto').click();await tick(1000);assert.match(await part('officialResult').innerText(),/対応する公式データを確認できません/);assert.equal(await part('officialAuto').isChecked(),false);const n=requests.length;await tick(65000);assert.equal(requests.length,n);assert.equal(JSON.stringify([...store]),beforeStore);});
-    for(const failure of ['denied','bad'])await check(`SHOWROOM ${failure} responses do not mutate local records`,async()=>{mode=failure;await tick(6000);await part('officialRead').click();await tick(1000);assert.match(await part('officialResult').innerText(),/読み取れませんでした/);assert.equal(JSON.stringify([...store]),beforeStore);});
+    await check('SHOWROOM missing data stays unknown and stops automatic retries',async()=>{mode='empty';await tick(6000);await part('officialAuto').click();await tick(1000);assert.match(await part('officialResult').innerText(),/対応する公式データを確認できません/);assert.equal(await part('officialAuto').isChecked(),false);const n=requests.length;await tick(65000);assert.equal(requests.length,n);assert.equal(recordStore(),beforeStore);});
+    for(const failure of ['denied','bad'])await check(`SHOWROOM ${failure} responses do not mutate local records`,async()=>{mode=failure;await tick(6000);await part('officialRead').click();await tick(1000);assert.match(await part('officialResult').innerText(),/読み取れませんでした/);assert.equal(recordStore(),beforeStore);});
     await check('SHOWROOM response from the prior mission period is discarded',async()=>{
       mode='delay';release=null;await tick(6000);await page.clock.setSystemTime(new Date('2026-09-11T14:59:59+09:00'));await part('officialRead').click();
       for(let i=0;i<20&&!release;i++)await page.waitForTimeout(25);assert.ok(release);

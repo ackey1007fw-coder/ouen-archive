@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mixch Watch Helper Mobile
 // @namespace    https://mixch.tv/
-// @version      0.2.0
+// @version      0.2.1
 // @description  ミクチャの手動視聴メモβ。コイン付与・現行獲得条件は未検証。時間・件数は端末内の目安です。
 // @author       ackey + ChatGPT
 // @match        https://mixch.tv/*
@@ -15,7 +15,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "mx", "version": "0.2.0", "home": "https://mixch.tv/", "title": "🎬 ミクチャ視聴メモ β", "key": "mxwh_progress_v1", "id": "mxwh-mobile"};
+  const CONFIG = {"kind": "mx", "version": "0.2.1", "home": "https://mixch.tv/", "title": "🎬 ミクチャ視聴メモ β", "key": "mxwh_progress_v1", "id": "mxwh-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -252,6 +252,12 @@
     let favorites = roomsOnly(await GM.getValue(`${prefix}_favorites`, []));
     let period = periodAt(Date.now());
     const storageKey = p => `${prefix}_${p.key}`;
+    const listCacheKey = `${prefix}_recent_list`;
+    const readListCache = async () => {
+      const raw = await GM.getValue(listCacheKey, null);
+      if (!raw || !Number.isFinite(raw.at) || Date.now() - raw.at > 15 * 60 * 1000) return { rooms: [], listUrl: backUrl };
+      return { rooms: roomsOnly(raw.rooms), listUrl: returnListUrl(raw.listUrl) };
+    };
     async function readState(p) {
       let raw = await GM.getValue(storageKey(p), null);
       if (raw === null && CONFIG.kind === 'sr') raw = migrateLegacy(await GM.getValue('srmr_mobile_session_v2', null), p);
@@ -390,6 +396,12 @@
       return roomsOnly(found);
     }
     function available() { return listRooms().filter(r => !blocked(r)); }
+    async function cacheCurrentList() {
+      if (!isList || !alive()) return;
+      const rooms = listRooms();
+      if (!rooms.length) return;
+      await GM.setValue(listCacheKey, { at: Date.now(), listUrl: returnListUrl(location.href), rooms });
+    }
     function renderFavorites() {
       el('favorites').replaceChildren();
       for (const r of favorites) {
@@ -496,7 +508,13 @@
       if (boundaryStop) return;
       if (!activeHere()) {
         if (skip) return;
-        const ok = await transact(s => { s.queue = [{ slug: current.slug, name: titleFromPage() }]; s.index = 0; s.run = `${Date.now()}-${Math.random()}`; s.active = true; });
+        const cache = await readListCache();
+        const currentRoom = { slug: current.slug, name: titleFromPage(), startedAt: null };
+        const ok = await transact(s => {
+          const rest = roomsOnly([...cache.rooms, ...s.queue]).filter(r => r.slug !== current.slug && !isRecorded(r, [...history, ...s.done]));
+          s.listUrl = cache.listUrl || backUrl;
+          s.queue = [currentRoom, ...rest]; s.index = 0; s.run = `${Date.now()}-${Math.random()}`; s.active = true;
+        });
         if (ok) { ended = false; notice = ''; resetTimer(); } return;
       }
       if (!skip && !ready && !blockedHere()) return;
@@ -517,7 +535,8 @@
       }, true);
       if (!ok || periodAt(Date.now()).key !== period.key) return;
       if (destination) navigate(destination);
-      else { ended = true; notice = countDone(state, prefs.target) >= prefs.target ? '目標まで記録しました。公式の結果・受取も確認してください。' : 'この一覧はここまで。中断・一覧へ戻ると、残りから続けられます。'; }
+      else if (countDone(state, prefs.target) < prefs.target) navigate(backUrl);
+      else { ended = true; notice = '目標まで記録しました。公式の結果・受取も確認してください。'; }
     }
     bind('next', () => advance(false)); bind('skip', () => advance(true));
     bind('exclude', async () => {
@@ -566,5 +585,6 @@
     }, 250);
     every(() => { if (!busy) void run(async () => { history = await readHistory(); if (activeHere()) await checkpoint(); else state = await readState(period); }); }, 2500);
     renderFavorites(); render();
+    if (isList) { void cacheCurrentList().catch(() => {}); every(() => { void cacheCurrentList().catch(() => {}); }, 5000); }
   }
 })();
