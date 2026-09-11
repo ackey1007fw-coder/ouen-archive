@@ -4,17 +4,19 @@ import { resolve, join } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 const toolRoot = process.env.PLAYWRIGHT_MODULE_ROOT;
 if (!toolRoot) throw new Error('Set PLAYWRIGHT_MODULE_ROOT to an isolated Playwright node_modules directory');
-const { chromium } = await import(pathToFileURL(join(toolRoot, 'playwright/index.mjs')));
+const playwright = await import(pathToFileURL(join(toolRoot, 'playwright/index.mjs')));
+const engine = process.env.RUNNER_TEST_ENGINE || 'chromium';
+if (!['chromium', 'webkit'].includes(engine)) throw new Error('Unsupported test engine');
 const repo = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const output = resolve(process.env.RUNNER_TEST_ARTIFACTS || join(repo, '.runner-test-artifacts'));
 await mkdir(output, {recursive:true});
-const report = { scope: 'Browser fixtures; no live service requests or official rewards tested; iPhone viewport emulation, not a physical device.', results: [] };
+const report = { engine, scope: 'Browser fixtures; no live service requests or official rewards tested; iPhone viewport emulation, not a physical device.', results: [] };
 const startTime = Date.parse('2026-09-11T08:00:00+09:00');
 const targets = [
   {kind:'sr',file:'SR-Mission-Runner-Mobile.user.js',prefix:'srmr_progress_v3',id:'srmr-mobile',home:'https://nao.qa/ap/search.php?kw=&genre=103',one:'room-one',two:'room-two',live:s=>`https://www.showroom-live.com/lite/${s}`,profile:s=>`https://www.showroom-live.com/r/${s}`},
   {kind:'mx',file:'Mixch-Watch-Helper-Mobile.user.js',prefix:'mxwh_progress_v1',id:'mxwh-mobile',home:'https://mixch.tv/',one:'100001',two:'100002',live:s=>`https://mixch.tv/u/${s}/live`,profile:s=>`https://mixch.tv/u/${s}`}
 ];
-const browser = await chromium.launch({headless:true});
+const browser = await playwright[engine].launch({headless:true});
 try {
   for (const target of targets) for (const width of [390,430,1280]) {
     const store = new Map(), errors = [], navigations = [];
@@ -61,6 +63,11 @@ try {
       });
       await part('start').click();await page.waitForURL(target.live(target.one));await panel().waitFor();
       await check('unplayed media does not count and next is disabled',async()=>{await page.clock.runFor(5000);await settle();await checkText('time',/^32$/);assert.equal(await part('next').isDisabled(),true);});
+      await check('hidden tabs never accrue media time',async()=>{
+        await page.evaluate(()=>{window.fixturePaused=false;Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'));});
+        await page.clock.runFor(4000);await settle();await checkText('time',/^32$/);
+        await page.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));});await settle();
+      });
       await page.evaluate(()=>{window.fixturePaused=false;});await page.clock.runFor(11000);await settle();
       const remainingBefore=Number(await part('time').innerText());assert.ok(remainingBefore<30&&remainingBefore>15);
       await check('partial media timer is saved and resumes after reload',async()=>{await part('pause').click();await settle();await page.reload();await panel().waitFor();const n=Number(await part('time').innerText());assert.ok(n<=remainingBefore+3&&n>=remainingBefore-2);});

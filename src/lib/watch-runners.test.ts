@@ -113,3 +113,8 @@ test('both installers are self-contained and do not automate service actions', (
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
   assert.match(srCode,/@version\s+1\.1\.0/);
 });
+
+test('standalone installers share the same reviewed engine without runtime dependencies', () => {
+  const engine = (s: string) => s.slice(s.indexOf('(() => {')).replace(/const CONFIG = .*?;/, 'const CONFIG = {};').replace(/\r\n/g, '\n');
+  assert.equal(engine(srCode), engine(mxCode));
+});
