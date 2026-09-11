@@ -7,6 +7,7 @@ type Period = { key: string; start: number; end: number; label: string };
 type Room = { slug: string; name?: string; startedAt?: number | null };
 type State = { period: string; done: { slug: string; at: number }[]; adjustment: number; queue: Room[]; index: number; active: boolean; checkpoint: { slug: string; elapsed: number } | null };
 type Runner = {
+  officialOnliveFallback: (url:string)=>string;
   repeatedMissionCount: (raw: unknown) => {achieved:number;received:number;pending:number;limit:number} | null;
   mixchBonusProgress: (text: string) => {achieved:number;received:number;pending:number;limit:number} | null;
   freshLinkedSnapshot: (s: unknown, now:number, kind?:string) => unknown;
@@ -122,7 +123,7 @@ test('both installers are self-contained and do not automate service actions', (
     assert.match(code,/if \(!isList && !current\?\.viewing\) return/);
   }
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
-  assert.match(srCode,/@version\s+1\.4\.0/);
+  assert.match(srCode,/@version\s+1\.4\.1/);
 });
 
 test('standalone installers share the same reviewed engine without runtime dependencies', () => {
@@ -234,4 +235,12 @@ test('ad helper mounts only on official dashboards, never the video watch or unr
   for(const path of ['/lottery/ad_reward','/lottery/ad_reward/1'])assert.equal(sr.isAdPage('https://www.showroom-live.com'+path),true);
   for(const url of ['https://www.showroom-live.com/lottery/ad_reward/1/watch','https://www.showroom-live.com/lottery/ad_reward/maintenance','https://evil.test/lottery/ad_reward','http://www.showroom-live.com/lottery/ad_reward','https://u@www.showroom-live.com/lottery/ad_reward'])assert.equal(sr.isAdPage(url),false);
   assert.equal(mx.isAdPage('https://www.showroom-live.com/lottery/ad_reward'),false);
+});
+
+
+test('official home without live cards has a safe onlive fallback while onlive itself does not loop', () => {
+  assert.equal(sr.officialOnliveFallback('https://www.showroom-live.com/'),'https://www.showroom-live.com/onlive');
+  assert.equal(sr.officialOnliveFallback('https://showroom-live.com/?genre_id=103&token=nope'),'https://www.showroom-live.com/onlive?genre_id=103');
+  for (const u of ['https://www.showroom-live.com/onlive','https://www.showroom-live.com/r/x','https://evil.test/','http://www.showroom-live.com/','https://u@www.showroom-live.com/']) assert.equal(sr.officialOnliveFallback(u),'');
+  assert.equal(mx.officialOnliveFallback('https://www.showroom-live.com/'),'');
 });

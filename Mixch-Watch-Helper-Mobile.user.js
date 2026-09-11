@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mixch Watch Helper Mobile
 // @namespace    https://mixch.tv/
-// @version      0.3.0
+// @version      0.3.1
 // @description  ミクチャの手動視聴メモβ。コイン付与・現行獲得条件は未検証。時間・件数は端末内の目安です。
 // @author       ackey + ChatGPT
 // @match        https://mixch.tv/*
@@ -15,7 +15,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "mx", "version": "0.3.0", "home": "https://mixch.tv/", "title": "🎬 ミクチャ視聴メモ β", "key": "mxwh_progress_v1", "id": "mxwh-mobile"};
+  const CONFIG = {"kind": "mx", "version": "0.3.1", "home": "https://mixch.tv/", "title": "🎬 ミクチャ視聴メモ β", "key": "mxwh_progress_v1", "id": "mxwh-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -65,6 +65,16 @@
         if (['showroom-live.com', 'www.showroom-live.com'].includes(u.hostname) && /^\/(?:onlive\/?)?$/.test(u.pathname)) return 'official';
       } else if (u.hostname === 'mixch.tv' && /^\/(?:live\/?)?$/.test(u.pathname)) return 'mixch';
       return '';
+    } catch { return ''; }
+  }
+  function officialOnliveFallback(value) {
+    if (CONFIG.kind !== 'sr') return '';
+    try {
+      const u = new URL(value);
+      if (u.protocol !== 'https:' || u.username || u.password || u.port || !['showroom-live.com','www.showroom-live.com'].includes(u.hostname) || u.pathname !== '/') return '';
+      const dest = new URL('/onlive','https://www.showroom-live.com');
+      for (const key of ['genre_id','genre']) if (/^\d{1,5}$/.test(u.searchParams.get(key) || '')) dest.searchParams.set(key,u.searchParams.get(key));
+      return dest.href;
     } catch { return ''; }
   }
   function returnListUrl(value) {
@@ -223,7 +233,7 @@
   }
   const officialAdsUrl = 'https://www.showroom-live.com/lottery/ad_reward';
 
-  const api = { repeatedMissionCount, mixchBonusProgress, freshLinkedSnapshot, isAdPage, officialMissionSummary, missionReadUrl, listSource, returnListUrl, officialRooms, parseStartedAt, normalizeHistory, isRecorded, recordKey, periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, roomsOnly };
+  const api = { officialOnliveFallback, repeatedMissionCount, mixchBonusProgress, freshLinkedSnapshot, isAdPage, officialMissionSummary, missionReadUrl, listSource, returnListUrl, officialRooms, parseStartedAt, normalizeHistory, isRecorded, recordKey, periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, roomsOnly };
   if (typeof document === 'undefined') {
     if (typeof module !== 'undefined') module.exports = api;
     return;
@@ -532,9 +542,10 @@
         const allRooms = listRooms();
         const candidates = allRooms.filter(r => !blocked(r));
         el('name').textContent = `この一覧の未記録 ${candidates.length}ルーム / 記録済み ${allRooms.length - candidates.length}件は候補外`;
-        el('start').textContent = count ? `残り${left}件を続ける ▶` : '開始 ▶';
-        el('start').disabled = busy || !left || !candidates.length;
-        el('status').textContent = notice || (!allRooms.length ? '配信中カードの読込待ち。配信一覧を表示するか、ページを更新してください。' : left ? '途中で閉じても、この枠の記録は残ります。' : '目標件数まで記録済み。公式の結果も確認してください。');
+        const fallback = !allRooms.length ? officialOnliveFallback(location.href) : '';
+        el('start').textContent = fallback ? 'オンライブ一覧を開く ▶' : count ? `残り${left}件を続ける ▶` : '開始 ▶';
+        el('start').disabled = busy || !left || (!candidates.length && !fallback);
+        el('status').textContent = notice || (fallback ? '公式トップに配信中カードが出ていないため、オンライブ一覧へ移動して続けます。記録はそのまま引き継ぎます。' : !allRooms.length ? 'オンライブ一覧の配信中カードを読込待ち。少し待つか、ページを更新してください。' : left ? '途中で閉じても、この枠の記録は残ります。' : '目標件数まで記録済み。公式の結果も確認してください。');
       } else {
         const room = state.queue.find(r => r.slug === current.slug);
         el('name').textContent = room?.name || titleFromPage();
@@ -597,7 +608,7 @@
     bind('start', async () => {
       await pending; history = await readHistory(); state = await readState(period);
       const rooms = available();
-      if (!rooms.length) return;
+      if (!rooms.length) { const fallback = officialOnliveFallback(location.href); if (fallback) navigate(fallback); return; }
       if (state.checkpoint) {
         const i = rooms.findIndex(r => recordKey(r) === recordKey(state.checkpoint));
         if (i > 0) rooms.unshift(...rooms.splice(i, 1));
