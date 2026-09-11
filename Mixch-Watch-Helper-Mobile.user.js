@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mixch Watch Helper Mobile
 // @namespace    https://mixch.tv/
-// @version      0.3.1
+// @version      0.3.2
 // @description  ミクチャの手動視聴メモβ。コイン付与・現行獲得条件は未検証。時間・件数は端末内の目安です。
 // @author       ackey + ChatGPT
 // @match        https://mixch.tv/*
@@ -15,7 +15,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "mx", "version": "0.3.1", "home": "https://mixch.tv/", "title": "🎬 ミクチャ視聴メモ β", "key": "mxwh_progress_v1", "id": "mxwh-mobile"};
+  const CONFIG = {"kind": "mx", "version": "0.3.2", "home": "https://mixch.tv/", "title": "🎬 ミクチャ視聴メモ β", "key": "mxwh_progress_v1", "id": "mxwh-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -89,23 +89,40 @@
     }
     return 'https://nao.qa/ap/search.php?' + new URLSearchParams({ kw: (u.searchParams.get('kw') || '').slice(0, 100), genre: /^\d{1,5}$/.test(u.searchParams.get('genre') || '') ? u.searchParams.get('genre') : '103' });
   }
-  // Use only rendered first-party onlive cards with an explicit live marker.
+  // Read both current official list layouts. Explicit live markers are required.
   // A HH:MM label has no date: never fabricate a broadcast start from it.
   function officialRooms(doc, base) {
     const found = [];
+    const hidden = node => { if (!node) return true; for (let n=node; n && n !== doc.documentElement; n=n.parentElement) { if (n.hidden || n.getAttribute?.('aria-hidden') === 'true') return true; const style=doc.defaultView?.getComputedStyle(n); if (style?.display === 'none' || style?.visibility === 'hidden') return true; } return false; };
     for (const card of doc.querySelectorAll('article.onlivecard:not(.todays-pick)')) {
-      if (card.closest('[hidden], [aria-hidden="true"]') || !card.getClientRects().length || doc.defaultView.getComputedStyle(card).visibility === 'hidden') continue;
-      const item = card.closest('li');
+      if (hidden(card)) continue;
+      const item = card.closest('li') || card.parentElement;
       const live = item?.querySelector('.onlivecard-time.is-onlive');
-      const a = card.querySelector('a.ga-onlive-click[href]');
+      const a = card.querySelector('a.ga-onlive-click[href], a.onlivecard-link[href]');
       const r = a && parseRoom(a.getAttribute('href'), base);
-      if (!r || !live || live.closest('li') !== item) continue;
+      if (!r || !live) continue;
       const startedAt = parseStartedAt(live.textContent);
       if (startedAt && startedAt > Date.now()) continue;
-      const name = item.querySelector('.onlivecard-name')?.textContent || card.querySelector('img.onlivecard-bg')?.alt || r.slug;
+      const name = item?.querySelector('.onlivecard-name')?.textContent || card.querySelector('img.onlivecard-bg')?.alt || r.slug;
       found.push({ slug: r.slug, roomId: validRoomId(a.getAttribute('data-room-id')), startedAt, name: cleanName(name) });
     }
+    for (const item of doc.querySelectorAll('.onlive-list .st-onlivelist__item')) {
+      if (hidden(item)) continue;
+      const a = item.querySelector('a.st-onlive__hover-button[href]');
+      const time = item.querySelector('time.st-onlive__badge.time');
+      const r = a && parseRoom(a.getAttribute('href'), base);
+      if (!r || !time) continue;
+      const name = item.querySelector('.st-room__name span:last-child')?.textContent || item.querySelector('img.st-onlive__bg')?.alt || r.slug;
+      found.push({ slug: r.slug, roomId: validRoomId(a.getAttribute('data-room-id')), startedAt: null, name: cleanName(name) });
+    }
     return roomsOnly(found);
+  }
+
+  function showroomLoggedOutHint(doc) {
+    if (CONFIG.kind !== 'sr') return false;
+    const top = [...doc.querySelectorAll('a[href="/account/login"]')].some(n => n.getClientRects().length && doc.defaultView.getComputedStyle(n).visibility !== 'hidden');
+    const roomMenu = [...doc.querySelectorAll('select.header-menu option')].some(o => o.value === '3' && o.textContent.trim() === 'ログイン');
+    return top || roomMenu;
   }
 
   const validStart = n => Number.isSafeInteger(n) && n > 0 ? n : null;
@@ -233,7 +250,7 @@
   }
   const officialAdsUrl = 'https://www.showroom-live.com/lottery/ad_reward';
 
-  const api = { officialOnliveFallback, repeatedMissionCount, mixchBonusProgress, freshLinkedSnapshot, isAdPage, officialMissionSummary, missionReadUrl, listSource, returnListUrl, officialRooms, parseStartedAt, normalizeHistory, isRecorded, recordKey, periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, roomsOnly };
+  const api = { showroomLoggedOutHint, officialOnliveFallback, repeatedMissionCount, mixchBonusProgress, freshLinkedSnapshot, isAdPage, officialMissionSummary, missionReadUrl, listSource, returnListUrl, officialRooms, parseStartedAt, normalizeHistory, isRecorded, recordKey, periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, roomsOnly };
   if (typeof document === 'undefined') {
     if (typeof module !== 'undefined') module.exports = api;
     return;
@@ -258,9 +275,12 @@
     const host = document.createElement('section'); ctx.host = host; host.id = CONFIG.id;
     host.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:9999;background:#161b24;color:white;border-radius:12px;padding:10px;font:14px/1.5 -apple-system,sans-serif';
     const status = document.createElement('span'); status.textContent = `配信の残り ${Math.max(0,Math.ceil(seconds-saved.elapsed/1000))}秒を保存して停止中。広告は公式画面で操作してください。 `;
+    const warning = document.createElement('div'); warning.style.cssText = 'margin-top:6px;color:#ffd48a;font-weight:700';
+    const login = document.createElement('a'); login.href = 'https://www.showroom-live.com/account/login'; login.textContent = 'SafariでSHOWROOMにログイン'; login.style.cssText = 'display:none;padding:8px;color:#acf';
     const back = document.createElement('a'); back.href = liveUrl(saved.slug); back.textContent = '配信へ戻る'; back.style.cssText = 'display:inline-block;padding:8px;color:#acf';
-    const hide = document.createElement('button'); hide.textContent = '小さく'; hide.style.cssText='padding:8px'; hide.addEventListener('click',()=>{status.hidden=!status.hidden;hide.textContent=status.hidden?'表示':'小さく';});
-    host.append(status,back,hide); if(ctx.alive)document.body.appendChild(host);
+    const hide = document.createElement('button'); hide.textContent = '小さく'; hide.style.cssText='padding:8px'; hide.addEventListener('click',()=>{status.hidden=!status.hidden;warning.hidden=status.hidden;hide.textContent=status.hidden?'表示':'小さく';});
+    const refreshLogin = () => { const need = (document.body?.textContent || '').includes('ログインが必要'); warning.textContent = need ? '⚠️ このSafariではSHOWROOMにログインしていないため、広告は公式側で0/0になります。ChromeのログインはSafariへ引き継がれません。' : ''; login.style.display = need ? 'inline-block' : 'none'; };
+    host.append(status,warning,login,back,hide); if(ctx.alive)document.body.appendChild(host); refreshLogin(); ctx.every(refreshLogin,1000);
   }
 
   async function supervise() {
@@ -364,7 +384,7 @@
       <div class="top"><strong id="title"></strong><button id="compact" class="small">小さく</button></div>
       <div class="sub" id="source"></div><div class="sub" id="period"></div><div class="progress" id="total"></div>
       <details class="fold" id="linkBox"><summary>公式の回数に連動</summary><button id="linkToggle">公式連動を使う</button><select id="linkedMission" aria-label="連動する視聴ミッション" hidden></select><div class="note" id="linkHelp"></div></details>
-      <div id="linkedStatus" class="note" role="status"></div>
+      <div id="linkedStatus" class="note" role="status"></div><div id="accountWarning" class="warn" role="status"></div>
       <div class="sub name" id="name"></div><div class="time" id="time"></div><div class="status" id="status" role="status"></div>
       <div class="row" id="listControls"><select id="seconds" aria-label="視聴目安秒数"><option value="30">30秒</option><option value="32">32秒</option><option value="35">35秒</option></select><select id="target" aria-label="目標ルーム数"><option value="10">10件</option><option value="20">20件</option></select><button class="primary" id="start">続きから開始</button></div>
       <div class="row" id="watchControls"><button class="primary" id="next" disabled>記録して次へ</button><button id="skip">スキップ</button></div>
@@ -531,6 +551,8 @@
       const localLeft = Math.max(0, prefs.target - count);
       const officialCount = linkedCount();
       el('total').textContent = officialCount ? `公式連動 ${officialCount.achieved} / ${officialCount.limit}　あと${left}回` : `端末の記録 ${count} / ${prefs.target}　あと${localLeft}件（${cutoff}まで）`;
+      const loggedOut = showroomLoggedOutHint(document);
+      el('accountWarning').textContent = loggedOut ? '⚠️ Safari側のSHOWROOMが未ログインです。ChromeのログインはSafariへ引き継がれません。公式ミッション・広告を使う前にSafariでログインしてください。' : '';
       el('listControls').hidden = !isList;
       el('watchControls').hidden = isList;
       el('pauseControls').hidden = isList;
@@ -551,8 +573,8 @@
         el('name').textContent = room?.name || titleFromPage();
         const counted = blockedHere();
         el('time').textContent = counted ? '記録済み' : ready ? '目安到達' : String(Math.max(0, Math.ceil(prefs.seconds - elapsed / 1000)));
-        el('next').textContent = officialCount && !left ? (activeHere() && ready ? '記録して終了' : '公式の目標達成') : counted && activeHere() ? '次の未記録へ ▶' : !activeHere() ? 'この配信を計測' : ready ? '記録して次へ ▶' : '再生を確認中';
-        el('next').disabled = busy || boundaryStop || adHold || (!left && !activeHere()) || (activeHere() && !ready && !counted) || (!activeHere() && counted);
+        el('next').textContent = officialCount && !left ? (activeHere() && ready ? '記録して終了' : '公式の目標達成') : counted ? '次の未記録へ ▶' : !activeHere() ? 'この配信を計測' : ready ? '記録して次へ ▶' : '再生を確認中';
+        el('next').disabled = busy || boundaryStop || adHold || (!left && !activeHere()) || (activeHere() && !ready && !counted);
         el('skip').disabled = busy || !activeHere();
         el('pause').disabled = busy || !activeHere();
         el('pause').textContent = paused ? '再開' : '一時停止';
@@ -621,6 +643,18 @@
       if (!activeHere()) {
         if (skip) return;
         const cache = await readListCache();
+        if (blockedHere()) {
+          const rest = roomsOnly([...cache.rooms, ...state.queue]).filter(r => r.slug !== current.slug && !isRecorded(r, [...history, ...state.done]));
+          if (rest.length) {
+            const dest = liveUrl(rest[0].slug);
+            const ok = await transact(s => { s.listUrl = cache.listUrl || returnListUrl(s.listUrl); s.queue = rest; s.index = 0; s.run = `${Date.now()}-${Math.random()}`; s.active = true; s.checkpoint = null; });
+            if (ok && dest) navigate(dest);
+          } else {
+            const list = cache.listUrl || returnListUrl(state.listUrl);
+            navigate(officialOnliveFallback(list) || (CONFIG.kind === 'sr' && list.includes('showroom-live.com') ? 'https://www.showroom-live.com/onlive' : list));
+          }
+          return;
+        }
         const currentRoom = { slug: current.slug, name: titleFromPage(), startedAt: null };
         const ok = await transact(s => {
           const rest = roomsOnly([...cache.rooms, ...s.queue]).filter(r => r.slug !== current.slug && !isRecorded(r, [...history, ...s.done]));

@@ -2,8 +2,8 @@
 
 ## 配布物と役割
 
-- `SR-Mission-Runner-Mobile.user.js` v1.4.1: iPhone Safari + Userscripts向け。SHOWROOMの実際の `/lite/{slug}` 配信を自分で視聴し、目安時間を確認して手動で記録・移動する。
-- `Mixch-Watch-Helper-Mobile.user.js` v0.3.1: ミクチャの公開 `/u/{id}/live` に対応した視聴メモβ。**Safariでの視聴コイン付与と現行の獲得条件は未検証**。公式ミッション達成ツールとは呼ばない。
+- `SR-Mission-Runner-Mobile.user.js` v1.4.2: iPhone Safari + Userscripts向け。SHOWROOMの実際の `/lite/{slug}` 配信を自分で視聴し、目安時間を確認して手動で記録・移動する。
+- `Mixch-Watch-Helper-Mobile.user.js` v0.3.2: ミクチャの公開 `/u/{id}/live` に対応した視聴メモβ。**Safariでの視聴コイン付与と現行の獲得条件は未検証**。公式ミッション達成ツールとは呼ばない。
 - ポータルへの組込みではない。人物情報・子サイト・feed・Next.jsのUIは変更しない。
 
 ## 記録と切り替え
@@ -136,3 +136,14 @@ SHOWROOM公式トップは、New30day等の表示状態によって配信中カ�
 v1.4.1では、公式トップ `/` で配信中カードが0件かつ残り回数がある場合、開始ボタンを「オンライブ一覧を開く」に切り替える。本人の1タップで `/onlive` へ移動し、端末件数・除外履歴・公式連動の同一タブ状態を維持して候補を読み直す。`/onlive` 自体が0件のときは無限リダイレクトせず、読込待ち/更新案内を維持する。genre_id/genreの数値パラメータだけは安全に引き継ぐ。
 
 隔離試験では16/20の端末記録を持った空の公式トップから `/onlive` へ移動し、16/20を保持したまま1ルームを検出することをChromium/WebKitで確認。これは実機の公式ページで常にカードが出る保証ではない。
+
+
+### 2026-09-12 実機不具合の再修正
+
+- iPhone実機で、端末記録18/20のまま公式一覧に戻ると候補0件となり、記録済み配信から次へも進めない事象を確認。
+- SHOWROOM公式は `/` と `/onlive` で配信中カードのDOMが異なる。トップの `article.onlivecard` に加えて、`/onlive` の `.onlive-list .st-onlivelist__item` / `a.st-onlive__hover-button` を読む。明示的な配信中リストだけを対象にし、予定枠は拾わない。
+- Safariで不安定だった `getClientRects()` を候補判定に使わず、hidden / aria-hidden / 祖先を含む display:none / visibility:hidden を除外する。
+- 既に記録済みの配信を巡回キュー外から開いた場合も「次の未記録へ」を有効化。直近候補キャッシュに未記録配信があれば1タップで進み、無ければ公式 `/onlive` へ戻る。再計上はしない。
+- 公式トップ・配信ページでSafari未ログインを検知できる場合は警告を表示。Chromeのログイン状態はSafariへ引き継がれないため、公式ミッション・広告利用前のSafariログインを案内する。
+- 広告ダッシュボードに公式の「ログインが必要」表示がある場合、補助パネルでも理由とログインリンクを表示。広告の再生・抽選・報酬受取は引き続き公式UIのみ。
+- `tools/watch-runners-safari-robust.browser.mjs` で 18/20保持→`/onlive`復帰、記録済み→次の未記録1タップ、広告未ログイン表示をChromium/WebKitで再現検証。
