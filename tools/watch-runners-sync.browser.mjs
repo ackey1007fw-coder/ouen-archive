@@ -47,7 +47,7 @@ try{for(const width of [390,430,1280]){
   try{
     await page.goto('https://mixch.tv/u/100001');await tick();
     await check('Mixch unsupported profile stays untouched',async()=>assert.equal(await page.locator('#'+id).count(),0));
-    await check('Mixch soft navigation into a live room mounts the correct panel',async()=>{await soft('/u/100001/live',live);await part('title').waitFor();assert.match(await part('title').innerText(),/v0\.3\.2/);assert.equal(await part('watchControls').isVisible(),true);});
+    await check('Mixch soft navigation into a live room mounts the correct panel',async()=>{await soft('/u/100001/live',live);await part('title').waitFor();assert.match(await part('title').innerText(),/v0\.3\.3/);assert.equal(await part('watchControls').isVisible(),true);});
     await part('next').click();await tick(2000);assert.equal(await part('time').innerText(),'32');
     await page.evaluate(()=>{window.fixturePaused=false;});await tick(4500);
     await check('Mixch detached panel is restored without resetting or duplicating its timer',async()=>{const before=Number(await part('time').innerText());await page.evaluate(()=>document.getElementById('mxwh-mobile').remove());await tick();assert.equal(await page.locator('#'+id).count(),1);assert.ok(Number(await part('time').innerText())<=before);});

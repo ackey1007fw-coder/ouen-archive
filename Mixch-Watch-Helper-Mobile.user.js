@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mixch Watch Helper Mobile
 // @namespace    https://mixch.tv/
-// @version      0.3.2
+// @version      0.3.3
 // @description  ミクチャの手動視聴メモβ。コイン付与・現行獲得条件は未検証。時間・件数は端末内の目安です。
 // @author       ackey + ChatGPT
 // @match        https://mixch.tv/*
@@ -15,7 +15,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "mx", "version": "0.3.2", "home": "https://mixch.tv/", "title": "🎬 ミクチャ視聴メモ β", "key": "mxwh_progress_v1", "id": "mxwh-mobile"};
+  const CONFIG = {"kind": "mx", "version": "0.3.3", "home": "https://mixch.tv/", "title": "🎬 ミクチャ視聴メモ β", "key": "mxwh_progress_v1", "id": "mxwh-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -274,10 +274,10 @@
     const seconds = [30,32,35].includes(prefs?.seconds) ? prefs.seconds : 32;
     const host = document.createElement('section'); ctx.host = host; host.id = CONFIG.id;
     host.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:9999;background:#161b24;color:white;border-radius:12px;padding:10px;font:14px/1.5 -apple-system,sans-serif';
-    const status = document.createElement('span'); status.textContent = `配信の残り ${Math.max(0,Math.ceil(seconds-saved.elapsed/1000))}秒を保存して停止中。広告は公式画面で操作してください。 `;
+    const status = document.createElement('span'); status.textContent = `配信の残り ${Math.max(0,Math.ceil(seconds-saved.elapsed/1000))}秒を保存。広告を見ている間は配信計測に加算しません。Safariのタブ一覧から元の配信タブへ戻ると自動再開します。 `;
     const warning = document.createElement('div'); warning.style.cssText = 'margin-top:6px;color:#ffd48a;font-weight:700';
     const login = document.createElement('a'); login.href = 'https://www.showroom-live.com/account/login'; login.textContent = 'SafariでSHOWROOMにログイン'; login.style.cssText = 'display:none;padding:8px;color:#acf';
-    const back = document.createElement('a'); back.href = liveUrl(saved.slug); back.textContent = '配信へ戻る'; back.style.cssText = 'display:inline-block;padding:8px;color:#acf';
+    const back = document.createElement('a'); back.href = liveUrl(saved.slug); back.textContent = '元の配信タブが見つからない場合：このタブで開く'; back.style.cssText = 'display:inline-block;padding:8px;color:#acf';
     const hide = document.createElement('button'); hide.textContent = '小さく'; hide.style.cssText='padding:8px'; hide.addEventListener('click',()=>{status.hidden=!status.hidden;warning.hidden=status.hidden;hide.textContent=status.hidden?'表示':'小さく';});
     const refreshLogin = () => { const need = (document.body?.textContent || '').includes('ログインが必要'); warning.textContent = need ? '⚠️ このSafariではSHOWROOMにログインしていないため、広告は公式側で0/0になります。ChromeのログインはSafariへ引き継がれません。' : ''; login.style.display = need ? 'inline-block' : 'none'; };
     host.append(status,warning,login,back,hide); if(ctx.alive)document.body.appendChild(host); refreshLogin(); ctx.every(refreshLogin,1000);
@@ -349,7 +349,7 @@
     if (!alive()) return;
     await GM.setValue(storageKey(period), state);
     let busy = false, elapsed = 0, paused = false, ready = false, notice = '', ended = false, boundaryStop = false;
-    let adHold = false;
+    let adHold = false; // legacy checkpoint compatibility; new ad tabs never set this true
     let lastWall = performance.now(), lastMedia = null, lastTime = null, pending = Promise.resolve();
     const titleFromPage = () => cleanName(document.querySelector('h1')?.textContent || document.title || current?.slug);
     const activeHere = () => !isList && state.active && state.queue[state.index]?.slug === current.slug && !ended;
@@ -358,7 +358,7 @@
     const blockedHere = () => !isList && blocked(roomHere());
     function resetTimer() {
       elapsed = activeHere() && state.checkpoint && recordKey(state.checkpoint) === recordKey(roomHere()) ? Math.min(state.checkpoint.elapsed, prefs.seconds * 1000) : 0;
-      adHold = activeHere() && state.checkpoint?.slug === current?.slug && state.checkpoint?.hold === true; if (adHold) paused = true;
+      adHold = false; // Ignore legacy ad holds so returning users resume normally.
       ready = elapsed >= prefs.seconds * 1000;
       lastWall = performance.now(); lastMedia = null; lastTime = null;
     }
@@ -389,7 +389,7 @@
       <div class="row" id="listControls"><select id="seconds" aria-label="視聴目安秒数"><option value="30">30秒</option><option value="32">32秒</option><option value="35">35秒</option></select><select id="target" aria-label="目標ルーム数"><option value="10">10件</option><option value="20">20件</option></select><button class="primary" id="start">続きから開始</button></div>
       <div class="row" id="watchControls"><button class="primary" id="next" disabled>記録して次へ</button><button id="skip">スキップ</button></div>
       <div class="row fold" id="discover"><a class="action" id="follow" target="_blank" rel="noopener noreferrer">♡ フォロー画面</a><button id="favorite">☆ あとで見る</button></div><div class="row fold" id="excludeControls"><button id="exclude">取得済みなので除外</button></div>
-      <div class="row fold" id="adsControls"><button id="openAds">広告ページへ（配信計測を停止）</button></div>
+      <div class="row fold" id="adsControls"><a class="action" id="openAds" href="https://www.showroom-live.com/lottery/ad_reward" target="_blank" rel="noopener noreferrer">広告を別タブで開く ↗</a></div>
       <div class="row fold" id="pauseControls"><button id="pause">一時停止</button><button id="back">中断・一覧へ</button></div>
       <details class="fold" id="officialBox"><summary>公式の進捗（読取専用・試用）</summary>
         <button id="officialRead">公式の進捗を読む</button><label class="note"><input id="officialAuto" type="checkbox" style="width:auto;min-height:24px">この画面で60秒ごとに読む</label>
@@ -536,11 +536,13 @@
       }
     },250);
     el('adsControls').hidden = CONFIG.kind !== 'sr' || isList;
-    bind('openAds', async () => {
-      adHold = true; paused = true; lastTime = null; lastMedia = null;
-      await checkpoint();
-      await GM.setValue(`${prefix}_ad_return`, { slug: current.slug, elapsed, at: Date.now() });
-      if (alive()) navigate(officialAdsUrl);
+    el('openAds').addEventListener('click', () => {
+      if (CONFIG.kind !== 'sr' || isList || !current?.slug) return;
+      adHold = false;
+      notice = '広告を別タブで開きました。配信タブが画面外の間は計測せず、戻ると再生確認後に自動再開します。';
+      void GM.setValue(`${prefix}_ad_return`, { slug: current.slug, elapsed, at: Date.now(), separateTab: true }).catch(() => {});
+      void checkpoint().catch(() => {});
+      render();
     });
 
     function render() {
@@ -574,11 +576,11 @@
         const counted = blockedHere();
         el('time').textContent = counted ? '記録済み' : ready ? '目安到達' : String(Math.max(0, Math.ceil(prefs.seconds - elapsed / 1000)));
         el('next').textContent = officialCount && !left ? (activeHere() && ready ? '記録して終了' : '公式の目標達成') : counted ? '次の未記録へ ▶' : !activeHere() ? 'この配信を計測' : ready ? '記録して次へ ▶' : '再生を確認中';
-        el('next').disabled = busy || boundaryStop || adHold || (!left && !activeHere()) || (activeHere() && !ready && !counted);
+        el('next').disabled = busy || boundaryStop || (!left && !activeHere()) || (activeHere() && !ready && !counted);
         el('skip').disabled = busy || !activeHere();
         el('pause').disabled = busy || !activeHere();
         el('pause').textContent = paused ? '再開' : '一時停止';
-        el('status').textContent = adHold ? '広告から戻りました。再開を押すまで配信計測は停止します。' : officialCount && !left ? '公式の目標に到達しました。未受取分は公式画面で受け取ってください。' : notice || (counted ? 'この配信は記録済み。計測・再計上せず、候補から外します。' : !activeHere() ? '計測を始めるか、一覧から続けてください。' : paused ? '一時停止中' : ready ? '公式側を確認してから、記録して次へ進んでください。' : '映像・音声の再生進行中だけ計測。未再生・停止・画面外は数えません。');
+        el('status').textContent = officialCount && !left ? '公式の目標に到達しました。未受取分は公式画面で受け取ってください。' : notice || (counted ? 'この配信は記録済み。計測・再計上せず、候補から外します。' : !activeHere() ? '計測を始めるか、一覧から続けてください。' : paused ? '一時停止中' : ready ? '公式側を確認してから、記録して次へ進んでください。' : '映像・音声の再生進行中だけ計測。未再生・停止・画面外は数えません。');
         el('favorite').textContent = favorites.some(r => r.slug === current.slug) ? '★ 保存済み' : '☆ あとで見る';
       }
       el('adjust').disabled = busy; el('reset').disabled = busy;
@@ -626,7 +628,7 @@
       await GM.setValue(historyKey, history);
     }
     function bind(id, fn) { el(id).addEventListener('click', () => void run(fn)); }
-    const checkpoint = () => activeHere() ? transact(s => { s.checkpoint = { slug: current.slug, startedAt: validStart(roomHere().startedAt), elapsed, hold: adHold }; }, true) : Promise.resolve(true);
+    const checkpoint = () => activeHere() ? transact(s => { s.checkpoint = { slug: current.slug, startedAt: validStart(roomHere().startedAt), elapsed, hold: false }; }, true) : Promise.resolve(true);
     bind('start', async () => {
       await pending; history = await readHistory(); state = await readState(period);
       const rooms = available();
@@ -639,7 +641,7 @@
       if (ok && state.active && periodAt(Date.now()).key === period.key) navigate(liveUrl(state.queue[0].slug));
     });
     async function advance(skip) {
-      if (boundaryStop || adHold) return;
+      if (boundaryStop) return;
       if (!activeHere()) {
         if (skip) return;
         const cache = await readListCache();
@@ -690,7 +692,7 @@
       notice = '取得済みとして候補から除外しました。件数は増やしていません。';
       if (activeHere()) await advance(true);
     });
-    bind('pause', async () => { paused = !paused; if (!paused) adHold = false; lastTime = null; await checkpoint(); });
+    bind('pause', async () => { paused = !paused; lastTime = null; await checkpoint(); });
     bind('back', async () => { await checkpoint(); navigate(backUrl); });
     bind('favorite', async () => {
       favorites = roomsOnly(await GM.getValue(`${prefix}_favorites`, []));
