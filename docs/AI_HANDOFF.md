@@ -381,3 +381,5 @@ bioは `2022年に退職` のような弱い年次断定を避け、現在は「
 - 最終回帰は unit、既存baseline、公式進捗/SPA、公式連動/広告、Safari robust をChromium/WebKitで実行。途中のfixture期待値・非表示祖先判定の失敗を修正して再実行。実アカウントの報酬付与は未確認。PR #14は未mergeを維持。
 
 - 2026-09-12 / SR v1.4.3: 広告を別タブ化。元の配信タブを保持し、hidden時間は0加算、復帰時は自動再開。旧ad holdは無視して復帰。Mixch v0.3.3は共通エンジン同期のみ。
+
+- 2026-09-12 / 公開準備: `/tools/mission-runner` に独立した公開βランディングページを追加。人物写真・個別推し情報は使わず、SHOWROOM v1.4.3 / ミクチャ v0.3.3 βの導入、Userscripts手順、機能、プライバシー、非公式・手動補助の制限を明記。productionではデプロイcommit固定のraw installerへリンクする設計。READMEにもPublic tools導線を追加。mainへのmergeは実機午後テスト後のオーナー最終確認待ち。
