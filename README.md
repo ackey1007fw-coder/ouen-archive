@@ -17,6 +17,13 @@
 - 各child siteから親ポータルへ戻る導線
 - bottom-only creator mini profile
 
+## Public tools
+
+- [Mission Runner](./src/app/tools/mission-runner/page.tsx) — iPhone Safari + Userscripts向けの非公式・手動視聴補助ツール
+  - SHOWROOM v1.4.3
+  - ミクチャ v0.3.3 β
+  - 公開ページ: `/tools/mission-runner`
+  - 仕様・制限: [`docs/WATCH-RUNNERS.md`](./docs/WATCH-RUNNERS.md)
 ## AI / agent向け project memory
 
 別チャットや別AIから作業を再開する場合は、まず以下を読んでください。
