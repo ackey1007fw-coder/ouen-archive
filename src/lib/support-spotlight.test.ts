@@ -24,7 +24,12 @@ function schedule(
 
 test("shows the active Paton vote and the upcoming third round on August 30", () => {
   const items = selectSupportSpotlightItems({
-    campaigns: supportCampaigns,
+    campaigns: supportCampaigns.filter((campaign) =>
+      [
+        "mily-campus-girls-paton-final-2026",
+        "mily-miss-circle-third-round-2026",
+      ].includes(campaign.id),
+    ),
     feedItems: [],
     now: new Date("2026-08-30T12:00:00+09:00"),
   });
@@ -79,7 +84,12 @@ test("adds only the nearest future schedule for each person", () => {
 
 test("keeps time-bounded campaigns ahead of upcoming schedules", () => {
   const items = selectSupportSpotlightItems({
-    campaigns: supportCampaigns,
+    campaigns: supportCampaigns.filter((campaign) =>
+      [
+        "mily-campus-girls-paton-final-2026",
+        "mily-miss-circle-third-round-2026",
+      ].includes(campaign.id),
+    ),
     feedItems: [
       schedule("riri", "homin", "2026-09-11T19:00:00+09:00"),
       schedule("yukako", "fukuyama", "2026-09-19T11:30:00+09:00"),
@@ -97,16 +107,40 @@ test("keeps time-bounded campaigns ahead of upcoming schedules", () => {
 
 test("shows the confirmed Riri and Yukako stage notices without feed data", () => {
   const items = selectSupportSpotlightItems({
-    campaigns: supportCampaigns,
+    campaigns: supportCampaigns.filter((campaign) =>
+      [
+        "riri-homin-stage-2026",
+        "yukako-baby-shark-live-september-2026",
+      ].includes(campaign.id),
+    ),
     feedItems: [],
     now: new Date("2026-08-30T12:00:00+09:00"),
   });
 
-  assert.deepEqual(items.slice(2).map(({ personId }) => personId), [
+  assert.deepEqual(items.map(({ personId }) => personId), [
     "riri",
     "yukako",
   ]);
-  assert.equal(items[2].stateLabel, "出演予定");
-  assert.equal(items[2].external, false);
-  assert.equal(items[3].timingLabel, "9/19 福山・9/20 久留米");
+  assert.equal(items[0].stateLabel, "出演予定");
+  assert.equal(items[0].external, false);
+  assert.equal(items[1].timingLabel, "9/19 福山・9/20 久留米");
+});
+
+test("prioritizes the deadline-sensitive actions visible on September 19", () => {
+  const items = selectSupportSpotlightItems({
+    campaigns: supportCampaigns,
+    feedItems: [],
+    now: new Date("2026-09-19T08:11:00+09:00"),
+  });
+
+  assert.deepEqual(items.map(({ id }) => id), [
+    "campaign:mily-campus-girls-paton-ex1-2026",
+    "campaign:mily-campus-girls-sns-ex1-2026",
+    "campaign:yukako-baby-shark-live-september-2026",
+    "campaign:riri-tenjiku-vol28-2026",
+  ]);
+  assert.equal(items[0].timingLabel, "9/22 23:59まで");
+  assert.equal(items[1].timingLabel, "9/20 12:00まで");
+  assert.equal(items[3].stateLabel, "予約受付中");
+  assert.equal(items[3].timingLabel, "10/11｜12:00・15:30・18:30");
 });
