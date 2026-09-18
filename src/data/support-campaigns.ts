@@ -24,6 +24,34 @@ export type SupportCampaign = Readonly<{
  */
 export const supportCampaigns = [
   {
+    id: "mily-campus-girls-paton-ex1-2026",
+    personId: "mily",
+    kindLabel: "投票",
+    title: "CAMPUS GIRLS 2027 本選EX1｜Paton投票",
+    summary:
+      "Patonの三橋莉子（みりぃ）ページから応援できます。投票にはPatonへのログインが必要です。",
+    startsAt: "2026-09-16T18:00:00+09:00",
+    endsAt: "2026-09-22T23:59:00+09:00",
+    href: "https://paton.jp/event/entrant/11866",
+    ctaLabel: "Patonでみりぃに投票する",
+    external: true,
+    priority: 120,
+  },
+  {
+    id: "mily-campus-girls-sns-ex1-2026",
+    personId: "mily",
+    kindLabel: "SNS審査",
+    title: "CAMPUS GIRLS 2027 本選EX vol.1｜SNS審査",
+    summary:
+      "みりぃの投稿を見て応援するSNS審査です。キャンガルでの配信は行わないと本人が案内しています。",
+    startsAt: "2026-09-07T12:00:00+09:00",
+    endsAt: "2026-09-20T12:00:00+09:00",
+    href: "https://mily-fan-site.vercel.app/support/",
+    ctaLabel: "応援方法を確認する",
+    external: false,
+    priority: 110,
+  },
+  {
     id: "mily-campus-girls-paton-final-2026",
     personId: "mily",
     kindLabel: "投票",
@@ -50,6 +78,24 @@ export const supportCampaigns = [
     ctaLabel: "ENTRY 734を見る",
     external: true,
     priority: 90,
+  },
+  {
+    id: "riri-tenjiku-vol28-2026",
+    personId: "riri",
+    kindLabel: "舞台",
+    title: "『天竺生地』vol.28｜チケット・応援受付中",
+    summary:
+      "10月11日の3公演に出演。チケットに加え、応援メッセージポストカードとソロチェキも受付中です。",
+    startsAt: "2026-10-11T12:00:00+09:00",
+    endsAt: "2026-10-11T19:30:00+09:00",
+    href:
+      "https://riri-schedule-2026.vercel.app/#event-tenjiku-vol28-2026-10",
+    ctaLabel: "里季の出演・応援情報を見る",
+    external: false,
+    activeStateLabel: "本日出演",
+    upcomingStateLabel: "予約受付中",
+    timingLabel: "10/11｜12:00・15:30・18:30",
+    priority: 60,
   },
   {
     id: "riri-homin-stage-2026",
