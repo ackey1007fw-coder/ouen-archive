@@ -40,10 +40,13 @@ test("renders a direct action plus a clear fan-site route", () => {
   );
 });
 
-test("renders nothing when there is no current action or realtime banner", () => {
+test("keeps the hero anchor target mounted when there is no current action or realtime banner", () => {
   const html = renderToStaticMarkup(
     <SupportSpotlight items={[]} realtimeBanner={null} />,
   );
 
-  assert.equal(html, "");
+  assert.match(html, /<section[^>]*id="support-now"/);
+  assert.match(html, /aria-labelledby="support-now-title"/);
+  assert.match(html, /いま応援してほしいこと/);
+  assert.doesNotMatch(html, /support-now-grid/);
 });
