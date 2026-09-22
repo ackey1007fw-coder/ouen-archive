@@ -1,12 +1,10 @@
 // ==UserScript==
-// @name         SR Mission Runner Mobile
-// @namespace    https://nao.qa/
-// @version      1.4.3
-// @description  SHOWROOMの配信を手動で視聴。時間帯ごとの端末記録・途中再開・フォロー画面への入口。公式の進捗は任意の読取専用表示。
+// @name         Mixch Watch Helper Mobile
+// @namespace    https://mixch.tv/
+// @version      0.3.3
+// @description  ミクチャの手動視聴メモβ。コイン付与・現行獲得条件は未検証。時間・件数は端末内の目安です。
 // @author       ackey + ChatGPT
-// @match        https://nao.qa/ap/*
-// @match        https://showroom-live.com/*
-// @match        https://www.showroom-live.com/*
+// @match        https://mixch.tv/*
 // @grant        GM.getValue
 // @grant        GM.setValue
 // @grant        GM.deleteValue
@@ -17,7 +15,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "sr", "version": "1.4.3", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
+  const CONFIG = {"kind": "mx", "version": "0.3.3", "home": "https://mixch.tv/", "title": "🎬 ミクチャ視聴メモ β", "key": "mxwh_progress_v1", "id": "mxwh-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
