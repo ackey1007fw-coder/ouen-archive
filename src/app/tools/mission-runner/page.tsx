@@ -26,7 +26,7 @@ const features = [
   ["🚫", "取得済みを候補外へ", "一度記録した配信を、同じ巡回で何度も開きにくくします。"],
   ["♡", "フォロー画面へ", "気になった配信者は公式プロフィールを別タブで開けます。"],
   ["📺", "広告は別タブ", "SHOWROOMの広告ページを別タブで開き、戻ると計測を自動再開。"],
-  ["🔗", "公式回数との連動", "対応できる公式進捗を、明示的にONにしたときだけ読み取ります。"],
+  ["🔗", "公式回数との連動", "SHOWROOMは起動時から公式連動。ミクチャは任意でONにできます。"],
 ] as const;
 
 export default function MissionRunnerPage() {
@@ -48,11 +48,11 @@ export default function MissionRunnerPage() {
         <div className={styles.actions}>
           <a className={styles.primary} href={srInstaller}>
             🚀 SHOWROOM版をインストール
-            <small>v1.4.3</small>
+            <small>v1.5.0</small>
           </a>
           <a className={styles.secondary} href={mixchInstaller}>
             🎬 ミクチャ版をインストール
-            <small>v0.3.3 β</small>
+            <small>v0.3.4 β</small>
           </a>
         </div>
         <p className={styles.installNote}>
@@ -114,7 +114,7 @@ export default function MissionRunnerPage() {
         <ul className={styles.points}>
           <li>パスワードやCookieを保存しません。</li>
           <li>進捗・お気に入り・取得済み記録はUserscriptsの端末内領域に保存します。</li>
-          <li>SHOWROOMの公式進捗読み取りは任意でONにした場合のみです。</li>
+          <li>SHOWROOMの公式進捗は起動時から自動更新。取得できない時は確認待ちを表示します。</li>
           <li>広告中やバックグラウンド中の時間を、配信視聴時間として加算しません。</li>
           <li>公式サービス側の仕様変更により、突然動かなくなる場合があります。</li>
         </ul>
@@ -133,12 +133,12 @@ export default function MissionRunnerPage() {
         <div className={styles.releaseGrid}>
           <div>
             <strong>SHOWROOM</strong>
-            <span>v1.4.3</span>
+            <span>v1.5.0</span>
             <p>iPhone Safari向け。公開β。</p>
           </div>
           <div>
             <strong>ミクチャ</strong>
-            <span>v0.3.3 β</span>
+            <span>v0.3.4 β</span>
             <p>公式コイン条件は未検証のためβ扱い。</p>
           </div>
         </div>

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SR Mission Runner Mobile
 // @namespace    https://nao.qa/
-// @version      1.4.3
-// @description  SHOWROOMの配信を手動で視聴。時間帯ごとの端末記録・途中再開・フォロー画面への入口。公式の進捗は任意の読取専用表示。
+// @version      1.5.0
+// @description  SHOWROOMの配信を手動で視聴。時間帯ごとの端末記録・途中再開・フォロー画面への入口。公式の進捗は起動時から自動更新する読取専用表示。
 // @author       ackey + ChatGPT
 // @match        https://nao.qa/ap/*
 // @match        https://showroom-live.com/*
@@ -17,7 +17,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "sr", "version": "1.4.3", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
+  const CONFIG = {"kind": "sr", "version": "1.5.0", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -250,9 +250,28 @@
     if (CONFIG.kind !== 'sr') return false;
     try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password && !u.port && ['showroom-live.com', 'www.showroom-live.com'].includes(u.hostname) && /^\/lottery\/ad_reward(?:\/\d+)?\/?$/.test(u.pathname); } catch { return false; }
   }
+  // Public room metadata only; do not traverse account state or execute site code.
+  function hydrationRoomId(text, slug) {
+    if (!validSlug(slug) || typeof text !== 'string' || text.length > 1000000) return '';
+    try {
+      const data = JSON.parse(text);
+      if (!Array.isArray(data)) return '';
+      const read = ref => {
+        let value = Number.isInteger(ref) && ref >= 0 ? data[ref] : null;
+        for (let i = 0; i < 4 && Array.isArray(value) && ['Reactive','ShallowReactive'].includes(value[0]); i++) value = data[value[1]];
+        return value;
+      };
+      const root = read(0), roomData = read(root?.data), info = read(roomData?.[`roomInfo-${slug}`]);
+      return read(info?.room_url_key) === slug ? validRoomId(read(info?.room_id)) : '';
+    } catch { return ''; }
+  }
+  function stoppedRoom(doc) {
+    if (CONFIG.kind !== 'sr') return false;
+    return [...doc.querySelectorAll('.room-block p.ta-c')].some(n => n.textContent.trim() === '配信停止中' && !n.closest('[hidden],[aria-hidden="true"]') && doc.defaultView.getComputedStyle(n).display !== 'none');
+  }
   const officialAdsUrl = 'https://www.showroom-live.com/lottery/ad_reward';
 
-  const api = { showroomLoggedOutHint, officialOnliveFallback, repeatedMissionCount, mixchBonusProgress, freshLinkedSnapshot, isAdPage, officialMissionSummary, missionReadUrl, listSource, returnListUrl, officialRooms, parseStartedAt, normalizeHistory, isRecorded, recordKey, periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, roomsOnly };
+  const api = { hydrationRoomId, showroomLoggedOutHint, officialOnliveFallback, repeatedMissionCount, mixchBonusProgress, freshLinkedSnapshot, isAdPage, officialMissionSummary, missionReadUrl, listSource, returnListUrl, officialRooms, parseStartedAt, normalizeHistory, isRecorded, recordKey, periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, roomsOnly };
   if (typeof document === 'undefined') {
     if (typeof module !== 'undefined') module.exports = api;
     return;
@@ -352,7 +371,8 @@
     await GM.setValue(storageKey(period), state);
     let busy = false, elapsed = 0, paused = false, ready = false, notice = '', ended = false, boundaryStop = false;
     let adHold = false; // legacy checkpoint compatibility; new ad tabs never set this true
-    let lastWall = performance.now(), lastMedia = null, lastTime = null, pending = Promise.resolve();
+    let lastWall = performance.now(), mediaSamples = new WeakMap(), pending = Promise.resolve();
+    let playbackStatus = '', storageSyncing = false;
     const titleFromPage = () => cleanName(document.querySelector('h1')?.textContent || document.title || current?.slug);
     const activeHere = () => !isList && state.active && state.queue[state.index]?.slug === current.slug && !ended;
     const roomHere = () => state.queue[state.index]?.slug === current?.slug ? state.queue[state.index] : { slug: current?.slug, startedAt: null };
@@ -362,7 +382,7 @@
       elapsed = activeHere() && state.checkpoint && recordKey(state.checkpoint) === recordKey(roomHere()) ? Math.min(state.checkpoint.elapsed, prefs.seconds * 1000) : 0;
       adHold = false; // Ignore legacy ad holds so returning users resume normally.
       ready = elapsed >= prefs.seconds * 1000;
-      lastWall = performance.now(); lastMedia = null; lastTime = null;
+      lastWall = performance.now(); mediaSamples = new WeakMap();
     }
     resetTimer();
     if (!alive()) return;
@@ -392,7 +412,7 @@
       <div class="row" id="watchControls"><button class="primary" id="next" disabled>記録して次へ</button><button id="skip">スキップ</button></div>
       <div class="row fold" id="discover"><a class="action" id="follow" target="_blank" rel="noopener noreferrer">♡ フォロー画面</a><button id="favorite">☆ あとで見る</button></div><div class="row fold" id="excludeControls"><button id="exclude">取得済みなので除外</button></div>
       <div class="row fold" id="adsControls"><a class="action" id="openAds" href="https://www.showroom-live.com/lottery/ad_reward" target="_blank" rel="noopener noreferrer">広告を別タブで開く ↗</a></div>
-      <div class="row fold" id="pauseControls"><button id="pause">一時停止</button><button id="back">中断・一覧へ</button></div>
+      <div class="row fold" id="pauseControls"><button id="pause">一時停止</button><button id="retry">再生を再確認</button><button id="back">中断・一覧へ</button></div>
       <details class="fold" id="officialBox"><summary>公式の進捗（読取専用・試用）</summary>
         <button id="officialRead">公式の進捗を読む</button><label class="note"><input id="officialAuto" type="checkbox" style="width:auto;min-height:24px">この画面で60秒ごとに読む</label>
         <div class="note" id="officialResult" role="status">公式の達成数と配信別の獲得履歴は別です。読み取った進捗は端末件数に自動加算せず、表示だけします。</div>
@@ -419,7 +439,7 @@
     el('officialBox').hidden = !officialAllowed;
     let officialLoading = false, officialLastAttempt = -Infinity, officialSnapshot = null;
     function currentRoomId() {
-      if (!isList) return validRoomId(roomHere().roomId);
+      if (!isList) return hydrationRoomId(document.getElementById('__NUXT_DATA__')?.textContent, current.slug) || validRoomId(roomHere().roomId);
       return listRooms().map(r => validRoomId(r.roomId)).find(Boolean) || '';
     }
     async function readOfficial() {
@@ -428,7 +448,7 @@
       if (!url) { el('officialResult').textContent = '公式一覧から開始した後に読み取ってください。対象ルームIDを確認できないため通信していません。'; return; }
       const readPeriod = periodAt(Date.now()).key;
       officialLastAttempt = performance.now(); officialLoading = true; el('officialRead').disabled = true;
-      officialSnapshot = null; el('officialResult').textContent = '公式の進捗を読取中…';
+      officialSnapshot = null; if (CONFIG.kind === 'sr') { linkedSnapshot = null; renderLinked(); } el('officialResult').textContent = '公式の進捗を読取中…';
 
 
 
@@ -442,13 +462,13 @@
         const text = await response.text(); if (text.length > 1000000) throw new Error('Oversized');
         const rows = officialMissionSummary(JSON.parse(text), Date.now());
         if (!alive() || periodAt(Date.now()).key !== readPeriod) return;
-        if (!rows.length) { clearLinked(); el('officialAuto').checked = false; el('officialResult').textContent = '対応する公式データを確認できません。ログイン状態・ミッション画面を確認してください。0件とは扱わず、端末記録も変更していません。'; return; }
+        if (!rows.length) { clearLinked(); el('officialAuto').checked = CONFIG.kind === 'sr'; el('officialResult').textContent = '対応する公式データを確認できません。ログイン状態・ミッション画面を確認してください。0件とは扱わず、端末記録も変更していません。'; return; }
         officialSnapshot = { rows, period: readPeriod, at: Date.now() };
         acceptOfficialRows(rows);
         const time = new Date(officialSnapshot.at).toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' });
         el('officialResult').textContent = `公式の進捗（${time}取得）: ` + officialSnapshot.rows.map(r => `${r.title} ${r.current}/${r.target}`).join(' ／ ') + '。受取済み件数・配信別履歴ではありません。';
       } catch {
-        if (alive()) { clearLinked(); el('officialAuto').checked = false; el('officialResult').textContent = '公式データを読み取れませんでした。端末の記録は変更していません。'; }
+        if (alive()) { clearLinked(); el('officialAuto').checked = CONFIG.kind === 'sr'; el('officialResult').textContent = '公式データを読み取れませんでした。端末の記録は変更していません。'; }
       } finally { clearTimeout(timeout); ctx.signal.removeEventListener('abort', abort); officialLoading = false; if (alive()) el('officialRead').disabled = false; }
     }
     el('officialRead').addEventListener('click', () => void readOfficial());
@@ -493,21 +513,21 @@
       }
     }
     const linkKey = `${prefix}_official_link_session`;
-    let linkedEnabled = false, linkedSnapshot = null, selectedMission = '', linkError = false;
-    try { const saved = JSON.parse(sessionStorage.getItem(linkKey) || 'null'); linkedEnabled = saved?.enabled === true; selectedMission = String(saved?.selected || '').slice(0, 20); linkedSnapshot = freshLinkedSnapshot(saved?.snapshot, Date.now()); } catch { /* Storage denial keeps linking off. */ }
+    let linkedEnabled = CONFIG.kind === 'sr', linkedSnapshot = null, selectedMission = '';
+    try { const saved = JSON.parse(sessionStorage.getItem(linkKey) || 'null'); linkedEnabled = CONFIG.kind === 'sr' || saved?.enabled === true; selectedMission = String(saved?.selected || '').slice(0, 20); linkedSnapshot = CONFIG.kind === 'sr' ? null : freshLinkedSnapshot(saved?.snapshot, Date.now()); } catch { /* Storage denial keeps linking off. */ }
     function saveLinked() { try { sessionStorage.setItem(linkKey, JSON.stringify({ enabled: linkedEnabled, selected: selectedMission, snapshot: linkedSnapshot })); } catch { /* In-memory mode only. */ } }
     const linkedCount = () => linkedEnabled ? freshLinkedSnapshot(linkedSnapshot, Date.now()) : null;
     function routingRemaining(s) { const official = linkedCount(); return official ? official.limit - official.achieved : Math.max(0, prefs.target - countDone(s, prefs.target)); }
     function renderLinked() {
-      el('linkToggle').textContent = linkedEnabled ? '公式連動を解除' : '公式連動を使う';
+      el('linkToggle').textContent = CONFIG.kind === 'sr' ? '公式の回数を再確認' : linkedEnabled ? '公式連動を解除' : '公式連動を使う';
       const c = linkedCount();
       el('linkedStatus').textContent = !linkedEnabled ? '公式連動はOFF。下の件数は端末の手動記録です。' : c ? `公式連動：達成 ${c.achieved}/${c.limit}・受取 ${c.received}・未受取 ${c.pending} ／ 残り ${c.limit-c.achieved}回（${new Date(c.at).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'})}確認）` : CONFIG.kind === 'mx' ? '公式通知の確認待ち。次の「視聴ボーナスGET！」を検出するまで、端末の手動記録で進みます。' : '公式の連続視聴ミッションを確認待ち。未確認の間は端末の手動記録で進みます。';
     }
-    function clearLinked() { linkedSnapshot = null; linkError = true; saveLinked(); renderLinked(); }
+    function clearLinked() { linkedSnapshot = null; saveLinked(); renderLinked(); }
     function acceptLinked(c) {
       if (!linkedEnabled || !alive()) return;
       linkedSnapshot = freshLinkedSnapshot({ ...c, kind: CONFIG.kind, period: periodAt(Date.now()).key, at: Date.now() }, Date.now());
-      linkError = false; saveLinked(); render();
+      saveLinked(); render();
     }
     function acceptOfficialRows(rows) {
       const candidates = rows.filter(r => r.count);
@@ -521,11 +541,13 @@
     }
     el('linkedMission').addEventListener('change', () => { selectedMission = el('linkedMission').value; linkedSnapshot = null; saveLinked(); if (officialSnapshot) acceptOfficialRows(officialSnapshot.rows); });
     el('linkToggle').addEventListener('click', () => {
-      linkedEnabled = !linkedEnabled; linkedSnapshot = null; linkError = false; saveLinked(); render();
+      if (CONFIG.kind === 'sr') { void readOfficial(); return; }
+      linkedEnabled = CONFIG.kind === 'sr' || !linkedEnabled; linkedSnapshot = null; saveLinked(); render();
       if (CONFIG.kind === 'sr' && officialAllowed) { el('officialAuto').checked = linkedEnabled; if (linkedEnabled) void readOfficial(); }
     });
-    el('linkHelp').textContent = CONFIG.kind === 'sr' ? 'このタブで公式の連続視聴回数に連動。公式一覧から開始してください。アカウント切替時は一度解除。端末の配信別履歴は書き換えません。' : 'このタブで新しく表示された公式の視聴ボーナス通知から残り回数を更新。通知前の過去分は未確認です。アカウント切替時は一度解除。';
-    if (linkedEnabled && officialAllowed) { el('officialAuto').checked = true; every(() => { if (!linkError && performance.now()-officialLastAttempt >= 60000) void readOfficial(); },2500); }
+    el('linkHelp').textContent = CONFIG.kind === 'sr' ? '公式連動は常にON。表示中は60秒ごと、配信移動・タブ復帰・目安到達時にも再確認します。未取得は確認待ちです。アカウント切替後は再確認してください。端末履歴は変更しません。' : 'このタブで新しく表示された公式の視聴ボーナス通知から残り回数を更新。通知前の過去分は未確認です。アカウント切替時は一度解除。';
+    if (CONFIG.kind === 'sr') { el('officialAuto').checked = true; el('officialAuto').disabled = true; el('officialAuto').parentElement.hidden = true; }
+    if (linkedEnabled && officialAllowed) el('officialAuto').checked = true;
     const seenToasts = new WeakMap();
     const toastSelector = '[role="alert"].alert.alert-success';
     for (const node of document.querySelectorAll(toastSelector)) seenToasts.set(node,node.textContent);
@@ -577,12 +599,14 @@
         el('name').textContent = room?.name || titleFromPage();
         const counted = blockedHere();
         el('time').textContent = counted ? '記録済み' : ready ? '目安到達' : String(Math.max(0, Math.ceil(prefs.seconds - elapsed / 1000)));
-        el('next').textContent = officialCount && !left ? (activeHere() && ready ? '記録して終了' : '公式の目標達成') : counted ? '次の未記録へ ▶' : !activeHere() ? 'この配信を計測' : ready ? '記録して次へ ▶' : '再生を確認中';
-        el('next').disabled = busy || boundaryStop || (!left && !activeHere()) || (activeHere() && !ready && !counted);
-        el('skip').disabled = busy || !activeHere();
+        const offline = stoppedRoom(document);
+        el('next').textContent = offline ? '次の未記録へ ▶' : officialCount && !left ? (activeHere() && ready ? '記録して終了' : '公式の目標達成') : counted ? '次の未記録へ ▶' : !activeHere() ? 'この配信を計測' : ready ? '記録して次へ ▶' : '再生を確認中';
+        el('next').disabled = busy || boundaryStop || (!left && !activeHere()) || (!offline && activeHere() && !ready && !counted);
+        el('skip').disabled = busy || boundaryStop;
+        el('retry').disabled = busy || offline || boundaryStop;
         el('pause').disabled = busy || !activeHere();
         el('pause').textContent = paused ? '再開' : '一時停止';
-        el('status').textContent = officialCount && !left ? '公式の目標に到達しました。未受取分は公式画面で受け取ってください。' : notice || (counted ? 'この配信は記録済み。計測・再計上せず、候補から外します。' : !activeHere() ? '計測を始めるか、一覧から続けてください。' : paused ? '一時停止中' : ready ? '公式側を確認してから、記録して次へ進んでください。' : '映像・音声の再生進行中だけ計測。未再生・停止・画面外は数えません。');
+        el('status').textContent = offline ? 'この配信は終了しています。記録を増やさず、スキップか次の未記録へ進んでください。' : officialCount && !left ? '公式の目標に到達しました。未受取分は公式画面で受け取ってください。' : notice || (counted ? 'この配信は記録済み。計測・再計上せず、候補から外します。' : !activeHere() ? '計測を始めるか、一覧から続けてください。' : paused ? '一時停止中' : ready ? '公式側を確認してから、記録して次へ進んでください。' : playbackStatus || '映像・音声の再生進行中だけ計測。未再生・停止・画面外は数えません。');
         el('favorite').textContent = favorites.some(r => r.slug === current.slug) ? '★ 保存済み' : '☆ あとで見る';
       }
       el('adjust').disabled = busy; el('reset').disabled = busy;
@@ -590,9 +614,9 @@
     async function rollover() {
       const p = periodAt(Date.now());
       if (p.key === period.key) return false;
-      clearLinked(); el('officialAuto').checked = false; officialSnapshot = null; el('officialResult').textContent = '時間帯が切り替わりました。公式データは再読取が必要です。';
+      clearLinked(); el('officialAuto').checked = CONFIG.kind === 'sr'; officialSnapshot = null; el('officialResult').textContent = '時間帯が切り替わりました。公式データは再読取が必要です。';
       period = p; history = await readHistory(); state = await readState(p); if (!state.active) state.listUrl = backUrl; await GM.setValue(storageKey(p), state);
-      ended = true; elapsed = 0; ready = false; lastTime = null; lastMedia = null;
+      ended = true; elapsed = 0; ready = false; mediaSamples = new WeakMap();
       boundaryStop = CONFIG.kind === 'sr' && !isList;
       notice = boundaryStop ? '時間帯が切り替わりました。同じ配信の継続では再達成できません。一覧に戻り、別の配信へ進んでください。' : '時間帯が切り替わりました。新しい枠の記録に切り替えています。';
       render(); return true;
@@ -645,9 +669,8 @@
     async function advance(skip) {
       if (boundaryStop) return;
       if (!activeHere()) {
-        if (skip) return;
         const cache = await readListCache();
-        if (blockedHere()) {
+        if (skip || blockedHere()) {
           const rest = roomsOnly([...cache.rooms, ...state.queue]).filter(r => r.slug !== current.slug && !isRecorded(r, [...history, ...state.done]));
           if (rest.length) {
             const dest = liveUrl(rest[0].slug);
@@ -688,13 +711,14 @@
       else if (routingRemaining(state) > 0) navigate(backUrl);
       else { ended = true; notice = '目標まで記録しました。公式の結果・受取も確認してください。'; }
     }
-    bind('next', () => advance(false)); bind('skip', () => advance(true));
+    bind('next', () => advance(stoppedRoom(document))); bind('skip', () => advance(true));
     bind('exclude', async () => {
       await remember(roomHere());
       notice = '取得済みとして候補から除外しました。件数は増やしていません。';
       if (activeHere()) await advance(true);
     });
-    bind('pause', async () => { paused = !paused; lastTime = null; await checkpoint(); });
+    bind('pause', async () => { paused = !paused; mediaSamples = new WeakMap(); await checkpoint(); });
+    bind('retry', async () => { paused = false; mediaSamples = new WeakMap(); lastWall = performance.now(); notice = ''; playbackStatus = '配信の再生ボタンを確認してください。再生が進むと計測を再開します。'; });
     bind('back', async () => { await checkpoint(); navigate(backUrl); });
     bind('favorite', async () => {
       favorites = roomsOnly(await GM.getValue(`${prefix}_favorites`, []));
@@ -720,20 +744,35 @@
     }));
     el('compact').addEventListener('click', () => { const compact = root.querySelector('.box').classList.toggle('compact'); el('compact').textContent = compact ? '戻す' : '小さく'; });
     // Keep no media samples across app switches, pauses, or bfcache restores.
-    document.addEventListener('visibilitychange', () => { lastMedia = null; lastTime = null; lastWall = performance.now(); if (document.hidden) void checkpoint().catch(() => {}); else void run(async () => { await pending; state = await readState(period); resetTimer(); }); }, { signal: ctx.signal });
-    window.addEventListener('pageshow', () => { lastMedia = null; lastTime = null; lastWall = performance.now(); void run(async () => { await pending; state = await readState(period); resetTimer(); }); }, { signal: ctx.signal });
+    document.addEventListener('visibilitychange', () => { mediaSamples = new WeakMap(); lastWall = performance.now(); if (document.hidden) void checkpoint().catch(() => {}); else void run(async () => { await pending; state = await readState(period); resetTimer(); }); if (!document.hidden && linkedEnabled && officialAllowed) void readOfficial(); }, { signal: ctx.signal });
+    window.addEventListener('pageshow', () => { mediaSamples = new WeakMap(); lastWall = performance.now(); void run(async () => { await pending; state = await readState(period); resetTimer(); }); if (!document.hidden && linkedEnabled && officialAllowed) void readOfficial(); }, { signal: ctx.signal });
     every(() => {
       if (periodAt(Date.now()).key !== period.key) { void run(async () => {}); return; }
       const now = performance.now(), wall = now - lastWall; lastWall = now;
-      if (!activeHere() || blockedHere() || paused || busy || ready || document.hidden) { lastMedia = null; lastTime = null; return; }
-      const media = [...document.querySelectorAll('video,audio')].find(m => !m.paused && !m.ended && !m.error && m.readyState >= 2);
-      const time = media && Number.isFinite(media.currentTime) ? media.currentTime : null;
-      elapsed += timerDelta(wall, media === lastMedia && time !== null && lastTime !== null ? time - lastTime : 0, true, !!media);
-      lastMedia = media; lastTime = time;
-      if (elapsed >= prefs.seconds * 1000) { elapsed = prefs.seconds * 1000; ready = true; }
+      if (!activeHere() || blockedHere() || paused || busy || ready || document.hidden || stoppedRoom(document)) { mediaSamples = new WeakMap(); render(); return; }
+      // Sample every candidate independently: a frozen first video must not hide
+      // progressing playback. Add at most one delta per tick, never two streams.
+      const scope = CONFIG.kind === 'sr' ? document.querySelector('.room-video-wrapper') || document : document;
+      let delta = 0, candidates = 0;
+      for (const media of scope.querySelectorAll('video,audio')) {
+        const time = Number.isFinite(media.currentTime) ? media.currentTime : null;
+        const previous = mediaSamples.get(media);
+        const playing = !media.paused && !media.ended && !media.error && media.readyState >= 2;
+        delta = Math.max(delta, timerDelta(wall, time !== null && previous !== undefined ? time - previous : 0, true, playing));
+        if (playing && time !== null) { mediaSamples.set(media, time); candidates++; } else mediaSamples.delete(media);
+      }
+      elapsed += delta;
+      playbackStatus = delta > 0 ? '' : candidates ? '再生の進行を確認中。映像が止まっている時は、配信の再生ボタンか「再生を再確認」を押してください。' : '配信プレイヤーの再生待ちです。配信の再生ボタンを押してください。';
+      if (elapsed >= prefs.seconds * 1000) { elapsed = prefs.seconds * 1000; ready = true; if (linkedEnabled && officialAllowed) void readOfficial(); }
       render();
     }, 250);
-    every(() => { if (!busy) void run(async () => { history = await readHistory(); if (activeHere()) await checkpoint(); else state = await readState(period); }); }, 2500);
+    // Slow Safari storage must not set UI busy or repeatedly blank media samples.
+    every(() => {
+      if (busy || storageSyncing) return;
+      storageSyncing = true;
+      const sync = async () => { history = await readHistory(); if (!alive()) return; if (activeHere()) await checkpoint(); else { const latest = await readState(period); if (alive() && !busy) state = latest; } };
+      void sync().catch(() => { notice = '途中経過を保存できませんでした。中断前に記録を確認してください。'; }).finally(() => { storageSyncing = false; if (alive()) render(); });
+    }, 2500);
     renderFavorites(); render();
     if (linkedEnabled && officialAllowed && !document.hidden) void readOfficial();
     if (isList) { void cacheCurrentList().catch(() => {}); every(() => { void cacheCurrentList().catch(() => {}); }, 5000); }

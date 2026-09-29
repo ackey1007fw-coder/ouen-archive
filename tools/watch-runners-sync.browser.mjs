@@ -14,7 +14,7 @@ const official='<ul><li><article class="onlivecard"><a class="ga-onlive-click" d
 const live='<h1>Fixture live</h1><video playsinline></video>';
 const fixture={genre_list:[{genre:'daily',current_period:'day',day:{continuous_mission:[{mission_id:1001,title:'配信を30秒視聴しよう',current_value:8,target_value:20,is_active:1}],single_mission:[]}}]};
 const report={engine,scope:'Isolated HTML/GM/network fixtures, not authenticated service or physical iPhone',results:[]};
-const browser=await pw[engine].launch({headless:true});
+const browser=await pw[engine].launch({headless:true,...(engine==='chromium' && process.env.RUNNER_CHROMIUM_PATH ? {executablePath:process.env.RUNNER_CHROMIUM_PATH} : {})});
 try{for(const width of [390,430,1280]){
   const checks=[],errors=[],requests=[],store=new Map();let mode='ok',release;
   const ctx=await browser.newContext({viewport:{width,height:844},isMobile:width<500,hasTouch:width<500,timezoneId:'America/Los_Angeles',locale:'ja-JP'});
@@ -47,7 +47,7 @@ try{for(const width of [390,430,1280]){
   try{
     await page.goto('https://mixch.tv/u/100001');await tick();
     await check('Mixch unsupported profile stays untouched',async()=>assert.equal(await page.locator('#'+id).count(),0));
-    await check('Mixch soft navigation into a live room mounts the correct panel',async()=>{await soft('/u/100001/live',live);await part('title').waitFor();assert.match(await part('title').innerText(),/v0\.3\.3/);assert.equal(await part('watchControls').isVisible(),true);});
+    await check('Mixch soft navigation into a live room mounts the correct panel',async()=>{await soft('/u/100001/live',live);await part('title').waitFor();assert.match(await part('title').innerText(),/v0\.3\.4/);assert.equal(await part('watchControls').isVisible(),true);});
     await part('next').click();await tick(2000);assert.equal(await part('time').innerText(),'32');
     await page.evaluate(()=>{window.fixturePaused=false;});await tick(4500);
     await check('Mixch detached panel is restored without resetting or duplicating its timer',async()=>{const before=Number(await part('time').innerText());await page.evaluate(()=>document.getElementById('mxwh-mobile').remove());await tick();assert.equal(await page.locator('#'+id).count(),1);assert.ok(Number(await part('time').innerText())<=before);});
@@ -63,15 +63,15 @@ try{for(const width of [390,430,1280]){
     });
     await page.locator('#'+id).screenshot({path:join(output,`mixch-lifecycle-${width}.png`)});
     await page.goto('https://www.showroom-live.com/');id='srmr-mobile';await tick();
-    await check('SHOWROOM progress read is off by default',async()=>{assert.equal(requests.length,0);assert.equal(await part('officialAuto').isChecked(),false);});
+    await check('SHOWROOM progress read is always on',async()=>{assert.equal(requests.length,1);assert.equal(await part('officialAuto').isChecked(),true);});
     await part('officialBox').locator('summary').click();const recordStore=()=>JSON.stringify([...store].filter(([k])=>!k.endsWith('_recent_list')));const beforeStore=recordStore();
     await check('SHOWROOM explicit read displays exact mission progress without changing local records',async()=>{await part('officialRead').click();await page.waitForFunction(()=>document.querySelector('#srmr-mobile')?.shadowRoot?.getElementById('officialResult')?.textContent.includes('8/20'));assert.equal(requests.length,1);assert.match(await part('total').innerText(),/0 \/ 20/);assert.equal(recordStore(),beforeStore);});
     await check('SHOWROOM manual repeated clicks are rate-limited',async()=>{await part('officialRead').click();await tick(1000);assert.equal(requests.length,1);});
     await check('SHOWROOM progress UI fits each viewport',async()=>{assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.locator('#'+id).screenshot({path:join(output,`official-progress-${width}.png`)});});
-    await tick(6000);await part('officialAuto').check();await tick(1000);const autoStart=requests.length;
-    await check('SHOWROOM opt-in refresh occurs after 60 seconds',async()=>{await tick(62000);assert.ok(requests.length>autoStart);});
-    await check('SHOWROOM never polls while hidden',async()=>{await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'));});const n=requests.length;await tick(65000);assert.equal(requests.length,n);await page.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));});await part('officialAuto').uncheck();});
-    await check('SHOWROOM missing data stays unknown and stops automatic retries',async()=>{mode='empty';await tick(6000);await part('officialAuto').click();await tick(1000);assert.match(await part('officialResult').innerText(),/対応する公式データを確認できません/);assert.equal(await part('officialAuto').isChecked(),false);const n=requests.length;await tick(65000);assert.equal(requests.length,n);assert.equal(recordStore(),beforeStore);});
+    await tick(7000);const autoStart=requests.length;
+    await check('SHOWROOM automatic refresh occurs after 60 seconds',async()=>{await tick(62000);assert.ok(requests.length>autoStart);});
+    await check('SHOWROOM never polls while hidden',async()=>{await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'));});const n=requests.length;await tick(65000);assert.equal(requests.length,n);await page.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));});await tick(1000);});
+    await check('SHOWROOM missing data stays unknown and retries automatically',async()=>{mode='empty';await tick(6000);await part('officialRead').click();await tick(1000);assert.match(await part('officialResult').innerText(),/対応する公式データを確認できません/);assert.equal(await part('officialAuto').isChecked(),true);const n=requests.length;await tick(65000);assert.ok(requests.length>n);assert.equal(recordStore(),beforeStore);});
     for(const failure of ['denied','bad'])await check(`SHOWROOM ${failure} responses do not mutate local records`,async()=>{mode=failure;await tick(6000);await part('officialRead').click();await tick(1000);assert.match(await part('officialResult').innerText(),/読み取れませんでした/);assert.equal(recordStore(),beforeStore);});
     await check('SHOWROOM response from the prior mission period is discarded',async()=>{
       mode='delay';release=null;await tick(6000);await page.clock.setSystemTime(new Date('2026-09-11T14:59:59+09:00'));await part('officialRead').click();

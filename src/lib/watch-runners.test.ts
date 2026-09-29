@@ -7,6 +7,7 @@ type Period = { key: string; start: number; end: number; label: string };
 type Room = { slug: string; name?: string; startedAt?: number | null };
 type State = { period: string; done: { slug: string; at: number }[]; adjustment: number; queue: Room[]; index: number; active: boolean; checkpoint: { slug: string; elapsed: number } | null };
 type Runner = {
+  hydrationRoomId: (text: string, slug: string) => string;
   officialOnliveFallback: (url:string)=>string;
   repeatedMissionCount: (raw: unknown) => {achieved:number;received:number;pending:number;limit:number} | null;
   mixchBonusProgress: (text: string) => {achieved:number;received:number;pending:number;limit:number} | null;
@@ -41,6 +42,16 @@ function load(code: string): Runner {
 const sr = load(srCode), mx = load(mxCode);
 const at = (time: string) => Date.parse(time);
 const morning = at('2026-09-11T08:00:00+09:00');
+
+test('public hydration ID is bound to the exact current room and rejects account/other-room IDs', () => {
+  const payload = [['ShallowReactive',1],{data:2},['ShallowReactive',3],{'roomInfo-one':4},{room_url_key:5,room_id:6},'one',123456];
+  assert.equal(sr.hydrationRoomId(JSON.stringify(payload),'one'),'123456');
+  assert.equal(sr.hydrationRoomId(JSON.stringify(payload),'two'),'');
+  assert.equal(sr.hydrationRoomId(JSON.stringify({...payload}),'one'),'');
+  for (const value of ['{}','[]','bad',JSON.stringify([['ShallowReactive',0]]),'x'.repeat(1000001)]) assert.equal(sr.hydrationRoomId(value,'one'),'');
+  const invalid = [...payload]; invalid[6] = '123&other=1';
+  assert.equal(sr.hydrationRoomId(JSON.stringify(invalid),'one'),'');
+});
 
 test('SR changes exactly at 03:00 and 15:00 JST, not at midnight', () => {
   for (const boundary of ['2026-09-11T03:00:00+09:00', '2026-09-11T15:00:00+09:00', '2027-01-01T03:00:00+09:00']) {
@@ -123,7 +134,7 @@ test('both installers are self-contained and do not automate service actions', (
     assert.match(code,/if \(!isList && !current\?\.viewing\) return/);
   }
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
-  assert.match(srCode,/@version\s+1\.4\.3/);
+  assert.match(srCode,/@version\s+1\.5\.0/);
 });
 
 test('standalone installers share the same reviewed engine without runtime dependencies', () => {

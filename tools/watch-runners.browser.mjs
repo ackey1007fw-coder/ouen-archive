@@ -17,7 +17,7 @@ const targets = [
   {kind:'mx',file:'Mixch-Watch-Helper-Mobile.user.js',prefix:'mxwh_progress_v1',id:'mxwh-mobile',home:'https://mixch.tv/',one:'100001',two:'100002',live:s=>`https://mixch.tv/u/${s}/live`,profile:s=>`https://mixch.tv/u/${s}`}
 ];
 targets.push({...targets[0],scenario:'sr-official',home:'https://www.showroom-live.com/'});
-const browser = await playwright[engine].launch({headless:true});
+const browser = await playwright[engine].launch({headless:true,...(engine==='chromium' && process.env.RUNNER_CHROMIUM_PATH ? {executablePath:process.env.RUNNER_CHROMIUM_PATH} : {})});
 try {
   for (const target of targets) for (const width of [390,430,1280]) {
     const store = new Map(), errors = [], navigations = [];

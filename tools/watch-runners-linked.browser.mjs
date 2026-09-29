@@ -8,7 +8,7 @@ const engine=process.env.RUNNER_TEST_ENGINE||'chromium';
 const out=process.env.RUNNER_TEST_ARTIFACTS;await mkdir(out,{recursive:true});
 const sr=await readFile(join(root,'SR-Mission-Runner-Mobile.user.js'),'utf8'),mx=await readFile(join(root,'Mixch-Watch-Helper-Mobile.user.js'),'utf8');
 const report={engine,scope:'Synthetic page, media and official progress; no authenticated reward tests.',results:[]};
-const browser=await pw[engine].launch({headless:true});
+const browser=await pw[engine].launch({headless:true,...(engine==='chromium' && process.env.RUNNER_CHROMIUM_PATH ? {executablePath:process.env.RUNNER_CHROMIUM_PATH} : {})});
 try{for(const width of [390,430,1280]){
  const store=new Map(),requests=[],checks=[],errors=[];let responseMode='normal';
  const ctx=await browser.newContext({viewport:{width,height:844},isMobile:width<500,hasTouch:width<500,locale:'ja-JP'});
@@ -40,7 +40,7 @@ try{for(const width of [390,430,1280]){
  const check=async(name,fn)=>{await fn();checks.push(name);console.log(`PASS ${engine}-${width} ${name}`);};
  try{
   await page.goto('https://www.showroom-live.com/');await panel().waitFor();
-  await check('link is opt-in and never reads rewards by itself',async()=>{assert.match(await part('linkedStatus').innerText(),/OFF/);assert.equal(requests.filter(r=>r.url.includes('/api/')).length,0);});
+  await tick();await check('SHOWROOM automatically reads official progress on entry',async()=>{assert.match(await part('linkedStatus').innerText(),/達成 8\/20/);assert.equal(requests.filter(r=>r.url.includes('/api/')).length,1);});
   await part('linkBox').locator('summary').click();await part('linkToggle').click();await tick();
   await check('repeat progress separates achieved, received and pending',async()=>{assert.match(await part('linkedStatus').innerText(),/達成 8\/20・受取 6・未受取 2.*残り 12回/);assert.match(await part('total').innerText(),/公式連動 8 \/ 20/);});
   await check('link survives reload in the same tab without changing room histories',async()=>{await page.reload();await panel().waitFor();await tick();assert.match(await part('linkedStatus').innerText(),/達成 8\/20/);assert.equal([...store].filter(([k])=>k.endsWith('_broadcast_history'))[0][1].length,0);});
