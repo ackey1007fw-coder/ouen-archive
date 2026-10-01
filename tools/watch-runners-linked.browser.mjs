@@ -12,6 +12,7 @@ const browser=await pw[engine].launch({headless:true,...(engine==='chromium' && 
 try{for(const width of [390,430,1280]){
  const store=new Map(),requests=[],checks=[],errors=[];let responseMode='normal';
  const ctx=await browser.newContext({viewport:{width,height:844},isMobile:width<500,hasTouch:width<500,locale:'ja-JP'});
+    for (const prefix of ['srmr_progress_v3', 'mxwh_progress_v1']) store.set(`${prefix}_prefs`, { seconds: 32, target: 20, autoNext: false });
  await ctx.exposeBinding('fixtureGet',(_s,k,d)=>store.has(k)?structuredClone(store.get(k)):d);
  await ctx.exposeBinding('fixtureSet',(_s,k,v)=>store.set(k,structuredClone(v)));
  await ctx.exposeBinding('fixtureDelete',(_s,k)=>store.delete(k));

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SR Mission Runner Mobile
 // @namespace    https://nao.qa/
-// @version      1.5.0
-// @description  SHOWROOMの配信を手動で視聴。時間帯ごとの端末記録・途中再開・フォロー画面への入口。公式の進捗は起動時から自動更新する読取専用表示。
+// @version      1.6.0
+// @description  SHOWROOMの実再生時間を計測し、時間到達で端末へ自動記録して次の配信へ移動。公式回数は読取専用で常時連動。
 // @author       ackey + ChatGPT
 // @match        https://nao.qa/ap/*
 // @match        https://showroom-live.com/*
@@ -17,7 +17,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "sr", "version": "1.5.0", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
+  const CONFIG = {"kind": "sr", "version": "1.6.0", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -170,7 +170,7 @@
     const done = (Array.isArray(s.done) ? s.done : []).filter(r => {
       if (!r || !liveUrl(r.slug) || !Number.isFinite(r.at) || r.at < period.start || r.at >= period.end || seen.has(recordKey(r)) || (validStart(r.startedAt) && r.startedAt > r.at)) return false;
       seen.add(recordKey(r)); return true;
-    }).slice(0, 300).map(r => ({ slug: r.slug, startedAt: validStart(r.startedAt), at: r.at }));
+    }).slice(0, 300).map(r => ({ slug: r.slug, startedAt: validStart(r.startedAt), at: r.at, source: ['timer', 'official', 'manual'].includes(r.source) ? r.source : 'legacy' }));
     const queue = roomsOnly(s.queue);
     const index = integer(s.index, 0, Math.max(0, queue.length - 1), 0);
     const cp = s.checkpoint;
@@ -180,10 +180,10 @@
         ? { slug: cp.slug, startedAt: validStart(cp.startedAt), elapsed: cp.elapsed, hold: cp.hold === true } : null };
   }
   const countDone = (s, target) => Math.max(0, Math.min(target, s.done.length + s.adjustment));
-  function addDone(s, room, now, period) {
+  function addDone(s, room, now, period, source = 'legacy') {
     const r = asRoom(room);
     if (s.period !== period.key || now < period.start || now >= period.end || !liveUrl(r.slug)) return false;
-    if (!isRecorded(r, s.done)) s.done.push({ slug: r.slug, startedAt: validStart(r.startedAt), at: now });
+    if (!isRecorded(r, s.done)) s.done.push({ slug: r.slug, startedAt: validStart(r.startedAt), at: now, source: ['timer', 'official', 'manual'].includes(source) ? source : 'legacy' });
     s.checkpoint = null;
     return true;
   }
@@ -338,7 +338,7 @@
     const prefix = CONFIG.key;
     let prefs = await GM.getValue(`${prefix}_prefs`, {});
     prefs = { seconds: [30, 32, 35].includes(prefs?.seconds) ? prefs.seconds : 32,
-      target: [10, 20].includes(prefs?.target) ? prefs.target : 20 };
+      target: [10, 20].includes(prefs?.target) ? prefs.target : 20, autoNext: prefs?.autoNext !== false };
     let favorites = roomsOnly(await GM.getValue(`${prefix}_favorites`, []));
     let period = periodAt(Date.now());
     const storageKey = p => `${prefix}_${p.key}`;
@@ -409,6 +409,7 @@
       <div id="linkedStatus" class="note" role="status"></div><div id="accountWarning" class="warn" role="status"></div>
       <div class="sub name" id="name"></div><div class="time" id="time"></div><div class="status" id="status" role="status"></div>
       <div class="row" id="listControls"><select id="seconds" aria-label="視聴目安秒数"><option value="30">30秒</option><option value="32">32秒</option><option value="35">35秒</option></select><select id="target" aria-label="目標ルーム数"><option value="10">10件</option><option value="20">20件</option></select><button class="primary" id="start">続きから開始</button></div>
+      <div class="row" id="autoControls"><button id="autoToggle">自動記録・次へ：ON</button></div><div class="note" id="autoStatus" role="status"></div>
       <div class="row" id="watchControls"><button class="primary" id="next" disabled>記録して次へ</button><button id="skip">スキップ</button></div>
       <div class="row fold" id="discover"><a class="action" id="follow" target="_blank" rel="noopener noreferrer">♡ フォロー画面</a><button id="favorite">☆ あとで見る</button></div><div class="row fold" id="excludeControls"><button id="exclude">取得済みなので除外</button></div>
       <div class="row fold" id="adsControls"><a class="action" id="openAds" href="https://www.showroom-live.com/lottery/ad_reward" target="_blank" rel="noopener noreferrer">広告を別タブで開く ↗</a></div>
@@ -521,7 +522,7 @@
     function renderLinked() {
       el('linkToggle').textContent = CONFIG.kind === 'sr' ? '公式の回数を再確認' : linkedEnabled ? '公式連動を解除' : '公式連動を使う';
       const c = linkedCount();
-      el('linkedStatus').textContent = !linkedEnabled ? '公式連動はOFF。下の件数は端末の手動記録です。' : c ? `公式連動：達成 ${c.achieved}/${c.limit}・受取 ${c.received}・未受取 ${c.pending} ／ 残り ${c.limit-c.achieved}回（${new Date(c.at).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'})}確認）` : CONFIG.kind === 'mx' ? '公式通知の確認待ち。次の「視聴ボーナスGET！」を検出するまで、端末の手動記録で進みます。' : '公式の連続視聴ミッションを確認待ち。未確認の間は端末の手動記録で進みます。';
+      el('linkedStatus').textContent = !linkedEnabled ? '公式連動はOFF。下の件数は端末の手動記録です。' : c ? `公式連動：達成 ${c.achieved}/${c.limit}・受取 ${c.received}・未受取 ${c.pending} ／ 残り ${c.limit-c.achieved}回（${new Date(c.at).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'})}確認）` : CONFIG.kind === 'mx' ? '公式通知の確認待ち。次の「視聴ボーナスGET！」を検出するまで、端末の手動記録で進みます。' : '公式の連続視聴ミッションを確認待ち。未確認の間は端末の記録で進みます。';
     }
     function clearLinked() { linkedSnapshot = null; saveLinked(); renderLinked(); }
     function acceptLinked(c) {
@@ -586,6 +587,9 @@
       el('excludeControls').hidden = isList || CONFIG.kind !== 'sr';
       el('exclude').disabled = busy || blockedHere();
       el('time').hidden = isList;
+      el('autoToggle').textContent = `自動記録・次へ：${prefs.autoNext ? 'ON（押すと停止）' : 'OFF'}`;
+      const timed = state.done.filter(r => r.source === 'timer').length;
+      el('autoStatus').textContent = `${prefs.autoNext ? `${prefs.seconds}秒の再生で端末に記録し、次の候補へ進みます。` : '自動移動は停止中。'}時間到達の記録 ${timed}件（公式取得の確認とは別）`;
       if (isList) {
         const allRooms = listRooms();
         const candidates = allRooms.filter(r => !blocked(r));
@@ -633,7 +637,7 @@
           state = latest; ended = true; notice = '別の画面で進んだため、この画面の計測を停止しました。'; render(); return false;
         }
         history = await readHistory();
-        await fn(latest); if (!alive()) return false; await GM.setValue(storageKey(p), latest);
+        if (await fn(latest) === false || !alive()) return false; await GM.setValue(storageKey(p), latest);
         if (period.key === p.key) state = latest;
         return true;
       });
@@ -666,8 +670,16 @@
       const ok = await transact(s => { s.listUrl = returnListUrl(location.href); s.queue = rooms.filter(r => !isRecorded(r, [...history, ...s.done])); s.index = 0; s.active = s.queue.length > 0; s.run = `${Date.now()}-${Math.random()}`; });
       if (ok && state.active && periodAt(Date.now()).key === period.key) navigate(liveUrl(state.queue[0].slug));
     });
-    async function advance(skip) {
-      if (boundaryStop) return;
+    function canAutoAdvance() { return !busy && autoAllowed(); }
+    // Recheck after queued storage reads: OFF/pause/hidden may change while saving.
+    function autoAllowed() {
+      return alive() && prefs.autoNext && ready && activeHere() && !blockedHere() && !paused && !document.hidden && !boundaryStop && !stoppedRoom(document) && periodAt(Date.now()).key === period.key;
+    }
+    function advanceRemaining(s, automatic) {
+      return automatic ? Math.min(routingRemaining(s), Math.max(0, prefs.target - countDone(s, prefs.target))) : routingRemaining(s);
+    }
+    async function advance(skip, automatic = false) {
+      if (boundaryStop || (automatic && !autoAllowed())) return;
       if (!activeHere()) {
         const cache = await readListCache();
         if (skip || blockedHere()) {
@@ -691,15 +703,16 @@
         if (ok) { ended = false; notice = ''; resetTimer(); } return;
       }
       if (!skip && !ready && !blockedHere()) return;
-      let destination = '';
+      let destination = '', recordedRoom = null;
       const ok = await transact(async s => {
+        if (automatic && !autoAllowed()) return false;
         const room = s.queue[s.index], at = Date.now();
         if (!skip && !isRecorded(room, [...history, ...s.done])) {
-          if (!addDone(s, room, at, period)) throw new Error('Period changed');
-          await remember(room, at);
+          if (!addDone(s, room, at, period, 'timer')) throw new Error('Period changed');
+          recordedRoom = room;
         }
         s.checkpoint = null;
-        if (routingRemaining(s) > 0) {
+        if (advanceRemaining(s, automatic) > 0) {
           for (let i = s.index + 1; i < s.queue.length; i++) {
             if (!isRecorded(s.queue[i], [...history, ...s.done])) { s.index = i; destination = liveUrl(s.queue[i].slug); break; }
           }
@@ -707,10 +720,21 @@
         if (!destination) s.active = false;
       }, true);
       if (!ok || periodAt(Date.now()).key !== period.key) return;
+      if (recordedRoom) await remember(recordedRoom);
+      if (periodAt(Date.now()).key !== period.key) { await rollover(); return; }
+      if (automatic && (!prefs.autoNext || paused || document.hidden || !alive())) { ended = true; notice = '時間到達を記録しました。自動移動は停止しました。'; return; }
       if (destination) navigate(destination);
-      else if (routingRemaining(state) > 0) navigate(backUrl);
+      else if (advanceRemaining(state, automatic) > 0) navigate(backUrl);
       else { ended = true; notice = '目標まで記録しました。公式の結果・受取も確認してください。'; }
     }
+    el('autoToggle').addEventListener('click', () => {
+      prefs.autoNext = !prefs.autoNext;
+      notice = prefs.autoNext ? '時間到達での自動記録・移動を開始します。' : '自動記録・移動を停止しました。';
+      const saved = { ...prefs };
+      const work = pending.then(() => GM.setValue(`${prefix}_prefs`, saved));
+      pending = work.catch(() => { prefs.autoNext = false; notice = '設定を保存できないため、自動移動を停止しました。'; render(); });
+      render();
+    });
     bind('next', () => advance(stoppedRoom(document))); bind('skip', () => advance(true));
     bind('exclude', async () => {
       await remember(roomHere());
@@ -749,6 +773,7 @@
     every(() => {
       if (periodAt(Date.now()).key !== period.key) { void run(async () => {}); return; }
       const now = performance.now(), wall = now - lastWall; lastWall = now;
+      if (canAutoAdvance()) { void run(() => advance(false, true)); return; }
       if (!activeHere() || blockedHere() || paused || busy || ready || document.hidden || stoppedRoom(document)) { mediaSamples = new WeakMap(); render(); return; }
       // Sample every candidate independently: a frozen first video must not hide
       // progressing playback. Add at most one delta per tick, never two streams.

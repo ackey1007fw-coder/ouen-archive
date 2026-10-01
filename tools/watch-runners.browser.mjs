@@ -24,6 +24,7 @@ try {
     let firstStart='2026/09/11 07:00:00';
     const context = await browser.newContext({viewport:{width,height:844},isMobile:width<500,hasTouch:width<500,timezoneId:'America/Los_Angeles',locale:'ja-JP'});
     const source = await readFile(join(repo,target.file),'utf8');
+    for (const prefix of ['srmr_progress_v3', 'mxwh_progress_v1']) store.set(`${prefix}_prefs`, { seconds: 32, target: 20, autoNext: false });
     await context.exposeBinding('fixtureGet',(_source,key,def)=>store.has(key)?structuredClone(store.get(key)):def);
     await context.exposeBinding('fixtureSet',(_source,key,value)=>{store.set(key,structuredClone(value));});
     await context.exposeBinding('fixtureDelete',(_source,key)=>{store.delete(key);});

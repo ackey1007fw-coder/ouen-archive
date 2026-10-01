@@ -1,10 +1,19 @@
 # AI HANDOFF — 応援アーカイブ
 
-Last updated: 2026-08-30 JST
+Last updated: 2026-10-01 JST
 
 この文書は、ChatGPT / Claude Code / Codex / Grok など別のAIや別チャットが、過去の会話を読めなくても現在地点から作業を再開できるようにするための「現在のセーブデータ」です。
 
 > このrepositoryは公開です。個人的なDM、恋愛・人間関係の推測、住所、連絡先、家族情報、資格情報、トークンなど、プロジェクトに不要な私的情報は絶対に記録しないでください。
+
+## 2026-10-01 — 両版の時間到達で自動記録・次へ（未merge）
+
+- `feat/watch-runners-auto-next-20261001` はPR #17のhead `60531a9`から分離。既存Draft PR #14/#16/#17を上書きしない。
+- SR v1.6.0 / ミクチャv0.5.0: 開始後、設定秒数の実再生で端末へ記録して次の候補へ自動移動。初期ON、ON/OFF保存、一時停止、最終保存失敗・背景・期間境界で停止。公式操作は自動化しない。
+- 時間到達メモと公式通知・本人確認・旧版メモの根拠を保存。ミクチャの未確認時の計上禁止は自動OFFの手動モードへ限定。公式合計と端末記録を分離する。
+- 自動は端末目標と確認済み公式上限まで。候補切れは一覧へ戻って停止。更新はSafari Userscriptsで両方をre-installする必要がある。実機iPhone・ログイン済み報酬付与は未検証。mainへmergeしない。
+- 新規回帰は `tools/watch-runners-auto.browser.mjs`、仕様と判断は `docs/WATCH-RUNNERS.md` / `docs/DECISION_LOG.md`。
+- ローカル検証: lint（error 0・既存warning 5）、typecheck、全134テスト、production build成功。Chromiumの自動巡回回帰73項目、既存の手動baseline・公式連動・SPA同期・取得確認33項目・停止対策6ケースを検証。配布ページは390/430/1280pxで表示・インストール導線・横overflowを確認。WebKitと実機iPhoneは未検証。
 
 ## 2026-09-30 — 手動視聴ヘルパー修正版（未merge）
 

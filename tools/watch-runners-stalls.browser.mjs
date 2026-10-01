@@ -25,6 +25,7 @@ try {
     if (name === 'single-room-id') store.clear();
     const ctx = await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,locale:'ja-JP'});
     const delay = () => name === 'slow-storage' ? new Promise(resolve => setTimeout(resolve, 450)) : Promise.resolve();
+    for (const prefix of ['srmr_progress_v3', 'mxwh_progress_v1']) store.set(`${prefix}_prefs`, { seconds: 32, target: 20, autoNext: false });
     await ctx.exposeBinding('get', async (_s,k,d) => {await delay();return store.has(k) ? structuredClone(store.get(k)) : d;});
     await ctx.exposeBinding('set', async (_s,k,v) => {await delay();store.set(k,structuredClone(v));});
     await ctx.exposeBinding('del', (_s,k) => store.delete(k));

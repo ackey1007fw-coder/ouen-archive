@@ -5,7 +5,7 @@ import { test } from 'node:test';
 
 type Period = { key: string; start: number; end: number; label: string };
 type Room = { slug: string; name?: string; startedAt?: number | null };
-type State = { period: string; done: { slug: string; at: number }[]; adjustment: number; queue: Room[]; index: number; active: boolean; checkpoint: { slug: string; elapsed: number } | null };
+type State = { period: string; done: { slug: string; at: number; source?: string }[]; adjustment: number; queue: Room[]; index: number; active: boolean; checkpoint: { slug: string; elapsed: number } | null };
 type Runner = {
   hydrationRoomId: (text: string, slug: string) => string;
   officialOnliveFallback: (url:string)=>string;
@@ -26,7 +26,7 @@ type Runner = {
   profileUrl: (slug: string) => string;
   normalizeState: (raw: unknown, period: Period) => State;
   countDone: (state: State, target: number) => number;
-  addDone: (state: State, slug: string | Room, now: number, period: Period) => boolean;
+  addDone: (state: State, slug: string | Room, now: number, period: Period, source?: string) => boolean;
   adjustCount: (state: State, n: number) => void;
   migrateLegacy: (raw: unknown, period: Period) => State;
   timerDelta: (wall: number, media: number, visible: boolean, playing: boolean) => number;
@@ -42,6 +42,21 @@ function load(code: string): Runner {
 const sr = load(srCode), mx = load(mxCode);
 const at = (time: string) => Date.parse(time);
 const morning = at('2026-09-11T08:00:00+09:00');
+
+test('timer records preserve their evidence without elevating legacy records to official receipts', () => {
+  for (const runner of [sr, mx]) {
+    const p = runner.periodAt(morning), s = runner.normalizeState(null, p);
+    const slug = runner === sr ? 'one' : '100001';
+    runner.addDone(s, slug, morning, p, 'timer');
+    runner.addDone(s, slug, morning + 1000, p, 'official');
+    assert.equal(s.done.length, 1);
+    assert.equal(runner.normalizeState(s, p).done[0].source, 'timer');
+    for (const source of [undefined, 'invented']) {
+      assert.equal(runner.normalizeState({ period: p.key, done: [{ slug, at: morning, source }] }, p).done[0].source, 'legacy');
+    }
+    assert.equal(runner.normalizeState({ period: p.key, done: [{ slug, at: morning, source: 'official' }] }, p).done[0].source, 'official');
+  }
+});
 
 test('public hydration ID is bound to the exact current room and rejects account/other-room IDs', () => {
   const payload = [['ShallowReactive',1],{data:2},['ShallowReactive',3],{'roomInfo-one':4},{room_url_key:5,room_id:6},'one',123456];
@@ -134,7 +149,7 @@ test('both installers are self-contained and do not automate service actions', (
     assert.match(code,/if \(!isList && !current\?\.viewing\) return/);
   }
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
-  assert.match(srCode,/@version\s+1\.5\.0/);
+  assert.match(srCode,/@version\s+1\.6\.0/);
 });
 
 test('standalone installers share parsing and state helpers; service-specific receipt UI is independent', () => {
