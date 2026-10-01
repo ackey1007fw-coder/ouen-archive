@@ -69,6 +69,7 @@ try {
         for (const id of ['officialGET', 'officialOther']) assert.equal(await page.locator('#' + id).evaluate(n => { const r = n.getBoundingClientRect(); return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === n; }), true);
         await page.screenshot({ path: join(output, `official-visible-${width}.png`) });
       });
+      await check('a completed checkpoint stays unobstructed after reload', async () => { await tick(3000); await page.reload(); await panel().waitFor(); assert.match(await part('compact').innerText(), /取得未確認・戻す/); assert.equal(await part('next').isDisabled(), true); });
       await part('compact').click();
       await page.evaluate(() => { document.getElementById('chat').textContent = '視聴ボーナスGET！ 9/20'; }); await tick();
       await alert('視聴ボーナスGET！ 9/20', true);

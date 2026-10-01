@@ -805,8 +805,12 @@
     }));
     el('compact').addEventListener('click', () => { if (officialView) { showOfficial(false); el('compact').textContent = '小さく'; return; } const compact = root.querySelector('.box').classList.toggle('compact'); el('compact').textContent = compact ? '戻す' : '小さく'; });
     // Keep no media samples across app switches, pauses, or bfcache restores.
-    document.addEventListener('visibilitychange', () => { mediaSamples = new WeakMap(); lastWall = performance.now(); if (document.hidden) void checkpoint().catch(() => {}); else void run(async () => { await pending; state = await readState(period); resetTimer(); }); if (!document.hidden && linkedEnabled && officialAllowed) void readOfficial(); }, { signal: ctx.signal });
-    window.addEventListener('pageshow', () => { mediaSamples = new WeakMap(); lastWall = performance.now(); void run(async () => { await pending; state = await readState(period); resetTimer(); }); if (!document.hidden && linkedEnabled && officialAllowed) void readOfficial(); }, { signal: ctx.signal });
+    async function restoreState() {
+      await pending; state = await readState(period); resetTimer();
+      if (CONFIG.kind === 'mx' && ready && !receiptHere()) showOfficial(true);
+    }
+    document.addEventListener('visibilitychange', () => { mediaSamples = new WeakMap(); lastWall = performance.now(); if (document.hidden) void checkpoint().catch(() => {}); else void run(restoreState); if (!document.hidden && linkedEnabled && officialAllowed) void readOfficial(); }, { signal: ctx.signal });
+    window.addEventListener('pageshow', () => { mediaSamples = new WeakMap(); lastWall = performance.now(); void run(restoreState); if (!document.hidden && linkedEnabled && officialAllowed) void readOfficial(); }, { signal: ctx.signal });
     every(() => {
       if (periodAt(Date.now()).key !== period.key) { void run(async () => {}); return; }
       const now = performance.now(), wall = now - lastWall; lastWall = now;
@@ -835,6 +839,7 @@
       void sync().catch(() => { notice = '途中経過を保存できませんでした。中断前に記録を確認してください。'; }).finally(() => { storageSyncing = false; if (alive()) render(); });
     }, 2500);
     renderFavorites(); render();
+    if (CONFIG.kind === 'mx' && ready && !receiptHere()) showOfficial(true);
     if (linkedEnabled && officialAllowed && !document.hidden) void readOfficial();
     if (isList) { void cacheCurrentList().catch(() => {}); every(() => { void cacheCurrentList().catch(() => {}); }, 5000); }
   }

@@ -20,7 +20,7 @@ Last updated: 2026-08-30 JST
 - ミクチャv0.4.0は公式成功通知の常時監視、配信IDに紐づいた取得確認、時間到達時のパネル退避を追加。取得未確認で記録して次へ進めない。スキップは無加算。本人確認は別表示とし公式合計を変更しない。
 - 端末メモ・公式合計・配信の取得確認を分離。旧版メモを公式取得済みへ昇格しない。全過去履歴の同期は未実装。iPhoneにはUserscriptsでre-installしてからページ再読込が必要。
 - `docs/WATCH-RUNNERS.md`、`tools/mixch-receipt.browser.mjs` に仕様と回帰を保存。レビュー・CI・本番マージは別確認。実機の公式付与をfixtureの成功と混同しない。
-- ローカル検証: lint（error 0・既存warning 5）、typecheck、全133テスト、production build成功。Chromiumの新しい取得確認回帰30項目（390/430/1280px）と、既存baseline・公式連動・SPA同期の全幅が成功。WebKitのバイナリをこの環境で取得できず、今回はWebKit・実機iPhoneとも未検証。
+- ローカル検証: lint（error 0・既存warning 5）、typecheck、全133テスト、production build成功。Chromiumの新しい取得確認回帰33項目（390/430/1280px、完了した途中保存からの再読込を含む）と、既存baseline・公式連動・SPA同期の全幅が成功。WebKitのバイナリをこの環境で取得できず、今回はWebKit・実機iPhoneとも未検証。
 
 ## 0. 最初に読む順番
 
