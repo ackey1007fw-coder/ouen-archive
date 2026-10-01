@@ -25,13 +25,13 @@ async function fixture(t, width, options = {}) {
     queue: t.slugs.map(slug => ({ slug, roomId: options.official ? '123456' : '' })), index: 0, active: true, run: 'fixture',
     checkpoint: options.complete ? { slug: t.slugs[0], elapsed: 32000, hold: false } : null, listUrl: t.home });
   const ctx = await browser.newContext({ viewport: { width, height: 844 }, isMobile: width < 500, hasTouch: width < 500, locale: 'ja-JP' });
-  let fail = false, delay = false, blockedWrite = null;
+  let fail = false, failAll = false, delay = false, blockedWrite = null, blockAll = false;
   const errors = [], requests = [], checks = [];
   await ctx.exposeBinding('get', async (_s, k, d) => { if (delay) await new Promise(r => setTimeout(r, 450)); return store.has(k) ? structuredClone(store.get(k)) : d; });
   await ctx.exposeBinding('set', async (_s, k, v) => {
     if (delay) await new Promise(r => setTimeout(r, 450));
-    if (k === stateKey && v.done.length && fail) throw new Error('Fixture storage denial');
-    if (k === stateKey && v.done.length && blockedWrite) await blockedWrite;
+    if (k === stateKey && (v.done.length && fail || failAll)) throw new Error('Fixture storage denial');
+    if (k === stateKey && (v.done.length || blockAll) && blockedWrite) await blockedWrite;
     store.set(k, structuredClone(v));
   });
   await ctx.exposeBinding('del', (_s, k) => store.delete(k));
@@ -67,7 +67,7 @@ async function fixture(t, width, options = {}) {
   const hidden = async value => { await page.evaluate(v => { window.fixtureHidden = v; document.dispatchEvent(new Event('visibilitychange')); }, value); await tick(); };
   await page.goto(t.live(t.slugs[0])); await panel().waitFor();
   return { ctx, page, panel, part, tick, check, hidden, store, stateKey, errors, requests, checks,
-    setFail: v => { fail = v; }, setDelay: v => { delay = v; }, block: () => { let release; blockedWrite = new Promise(r => { release = r; }); return () => { blockedWrite = null; release(); }; } };
+    setFail: v => { fail = v; }, failAny: () => { failAll = true; }, setDelay: v => { delay = v; }, block: (all = false) => { blockAll = all; let release; blockedWrite = new Promise(r => { release = r; }); return () => { blockedWrite = null; release(); }; } };
 }
 async function scenario(t, width, name, options, fn) {
   if (process.env.RUNNER_AUTO_CASE && process.env.RUNNER_AUTO_CASE !== name) return;
@@ -95,8 +95,8 @@ try {
       await check('background time never records or navigates', async () => { assert.equal(store.get(stateKey).done.length, 0); assert.equal(page.url(), t.live(t.slugs[0])); });
       await hidden(false); await part('autoToggle').click(); await tick(40000);
       await check('OFF persists and retains manual confirmation at time completion', async () => { assert.equal(store.get(`${t.prefix}_prefs`).autoNext, false); assert.equal(store.get(stateKey).done.length, 0); assert.equal(page.url(), t.live(t.slugs[0])); if (t.kind === 'mx') { assert.equal(await part('next').isDisabled(), true); await part('compact').click(); } });
-      await part('autoToggle').click(); await tick(); await page.waitForURL(t.live(t.slugs[1])); await f.panel().waitFor();
-      await check('time completion saves exactly once before navigating; next room resets', async () => { assert.equal(store.get(stateKey).done.length, 1); assert.equal(store.get(stateKey).done[0].source, 'timer'); assert.equal(store.get(stateKey).index, 1); assert.equal(await part('time').innerText(), '32'); assert.match(await part('autoStatus').innerText(), /時間到達の記録 1件/); });
+      await part('autoToggle').click(); await tick(6000); await page.waitForURL(t.live(t.slugs[1])); await f.panel().waitFor();
+      await check('time completion saves exactly once before navigating; next room resets', async () => { assert.equal(store.get(stateKey).done.length, 1); assert.equal(store.get(stateKey).done[0].source, 'timer'); assert.equal(store.get(stateKey).index, 1); assert.equal(store.get(`${t.prefix}_watch_reviews`)[0].reward, 'unconfirmed'); assert.equal(await part('reviewLinks').locator('a').first().getAttribute('href'), t.live(t.slugs[0])); assert.equal(await part('time').innerText(), '32'); assert.match(await part('autoStatus').innerText(), /時間到達の記録 1件/); });
       f.setDelay(true); await page.evaluate(() => { window.playing = true; }); await tick(10000); f.setDelay(false); await page.waitForTimeout(1700);
       await check('slow saves do not interrupt the next timer', async () => { assert.ok(Number(await part('time').innerText()) < 26); });
       if (t.kind === 'mx') await page.evaluate(() => { const n = document.createElement('div'); n.className = 'alert alert-success'; n.setAttribute('role', 'alert'); n.textContent = '視聴ボーナスGET！ 5/20'; document.body.append(n); });
@@ -108,15 +108,82 @@ try {
     });
   }
   for (const t of targets) {
+    for (const width of [390, 430, 1280]) {
+      await scenario(t, width, 'offline-auto-skip', {}, async f => {
+        const offline = async (text, hidden = false) => f.page.evaluate(({text,hidden,kind}) => {
+          const n = document.createElement('div'); n.id='offline'; n.hidden=hidden;
+          n.innerHTML = kind === 'sr' ? `<div class="room-block"><p class="ta-c">${text}</p></div>` : `<div role="alert" class="alert alert-warning">${text}</div>`;
+          document.body.append(n);
+        }, {text,hidden,kind:t.kind});
+        const status = t.kind === 'sr' ? '配信停止中' : '現在配信していません';
+        await offline(status,true); await f.tick(4000);
+        await f.check('hidden offline text and unplayed media never trigger skip', async () => { assert.equal(f.page.url(),t.live(t.slugs[0])); assert.equal(f.store.get(f.stateKey).done.length,0); });
+        await f.page.evaluate(() => document.getElementById('offline').hidden=false); await f.tick(500);
+        await f.page.evaluate(() => document.getElementById('offline').remove()); await f.tick(2000);
+        await f.check('transient offline indication must persist for 1.5 seconds', async () => { assert.equal(f.page.url(),t.live(t.slugs[0])); });
+        if(t.kind === 'mx') {
+          await offline('ライブの読み込みに失敗しました。 すでに終了している可能性があります。'); await f.tick(4000);
+          await f.check('ambiguous network/player failure is not offline proof', async () => { assert.equal(f.page.url(),t.live(t.slugs[0])); });
+          await f.page.evaluate(() => document.getElementById('offline').remove());
+        }
+        await f.part('autoToggle').click(); await offline(status); await f.tick(3000);
+        await f.check('OFF disables offline navigation too', async () => { assert.equal(f.page.url(),t.live(t.slugs[0])); });
+        await f.part('autoToggle').click(); await f.hidden(true); await f.tick(4000);
+        await f.check('background cannot auto-skip', async () => { assert.equal(f.page.url(),t.live(t.slugs[0])); });
+        await f.hidden(false); await f.tick(3000); await f.page.waitForURL(t.live(t.slugs[1])); await f.panel().waitFor();
+        await f.check('confirmed offline broadcast skips without a completion, reward or exclusion', async () => { assert.equal(f.store.get(f.stateKey).done.length,0); assert.equal((f.store.get(`${t.prefix}_watch_reviews`)||[]).length,0); assert.equal((f.store.get(`${t.prefix}_broadcast_history`)||[]).length,0); assert.equal(f.store.get(f.stateKey).index,1); });
+        await offline(status); await f.tick(3000); await f.page.waitForURL(t.live(t.slugs[2])); await f.panel().waitFor();
+        await offline(status); await f.tick(3000); await f.page.waitForURL(t.home); await f.panel().waitFor(); await f.tick(5000);
+        await f.check('all offline candidates exhaust finite queue and stop on list', async () => { assert.equal(f.store.get(f.stateKey).active,false); assert.equal(f.store.get(f.stateKey).done.length,0); assert.equal(f.page.url(),t.home); });
+      });
+      await scenario(t, width, 'grace-and-recovery', {}, async f => {
+        await f.page.evaluate(() => window.playing=true); await f.tick(33000);
+        await f.check('bounded grace reveals official controls before recording or leaving', async () => { assert.equal(f.page.url(),t.live(t.slugs[0])); assert.equal(f.store.get(f.stateKey).done.length,0); assert.equal(await f.part('autoToggle').isVisible(),true); });
+        if(t.kind === 'mx') await f.page.evaluate(() => {const n=document.createElement('div');n.className='alert alert-success';n.setAttribute('role','alert');n.textContent='視聴ボーナスGET！ 8/20';document.body.append(n);});
+        await f.tick(5000); await f.page.waitForURL(t.live(t.slugs[1])); await f.panel().waitFor();
+        await f.check('grace-period GET is saved separately; unknown reward remains recoverable', async () => {const r=f.store.get(`${t.prefix}_watch_reviews`)[0];assert.equal(r.reward,t.kind==='mx'?'official':'unconfirmed');assert.equal(f.store.get(f.stateKey).done.length,1);});
+        // Reopen the completion. It cannot auto-run again; a later official notice updates proof only.
+        await f.page.goto(t.live(t.slugs[0]));await f.panel().waitFor();await f.tick(6000);
+        await f.check('reopening completed record never records or navigates automatically',async()=>{assert.equal(f.page.url(),t.live(t.slugs[0]));assert.equal(f.store.get(f.stateKey).done.length,1);});
+      });
+    }
+    await scenario(t,390,'recovery-proof',{complete:true},async f=>{
+      await f.tick(6000);await f.page.waitForURL(t.live(t.slugs[1]));await f.panel().waitFor();
+      await f.page.goto(t.live(t.slugs[0]));await f.panel().waitFor();
+      if(t.kind==='mx') {await f.page.evaluate(()=>{const n=document.createElement('div');n.className='alert alert-success';n.setAttribute('role','alert');n.textContent='視聴ボーナスGET！ 9/20';document.body.append(n);});await f.tick();}
+      await f.check('later GET never automatically confirms a historical timer record',async()=>{assert.equal(f.store.get(`${t.prefix}_watch_reviews`)[0].reward,'unconfirmed');assert.equal(f.store.get(f.stateKey).done.length,1);});
+      await f.part('reviewSummary').click();
+      f.page.once('dialog',d=>d.dismiss());await f.part('reviewLinks').locator('button').first().click();
+      await f.check('cancelling individual review preserves pending status',async()=>{assert.equal(f.store.get(`${t.prefix}_watch_reviews`)[0].reward,'unconfirmed');});
+      const total=await f.part('total').innerText();
+      f.page.once('dialog',d=>d.accept());await f.part('reviewLinks').locator('button').first().click();await f.tick();
+      await f.check('explicit individual confirmation changes proof only, not time source or official totals',async()=>{const r=f.store.get(`${t.prefix}_watch_reviews`)[0];assert.equal(r.reward,'manual');assert.equal(r.source,'timer');assert.equal(f.store.get(f.stateKey).done.length,1);assert.equal(await f.part('total').innerText(),total);});
+      await f.page.clock.setSystemTime(new Date(t.kind==='sr'?'2026-10-01T15:00:00+09:00':'2026-10-02T00:00:00+09:00'));await f.tick(3000);
+      await f.check('review proof survives period rollover while local count starts a fresh period',async()=>{assert.equal(f.store.get(`${t.prefix}_watch_reviews`)[0].reward,'manual');assert.equal(f.page.url(),t.live(t.slugs[0]));});
+    });
+    await scenario(t,390,'cancel-offline-save',{},async f=>{
+      const release = f.block(true);
+      await f.page.evaluate(kind=>{const n=document.createElement('div');n.id='stop';n.innerHTML=kind==='sr'?'<div class="room-block"><p class="ta-c">配信停止中</p></div>':'<div role="alert" class="alert alert-warning">現在配信していません</div>';document.body.append(n);},t.kind);
+      await f.tick(3000); await f.part('autoToggle').click(); release(); await f.tick(4000);
+      await f.check('OFF during offline skip save cancels navigation',async()=>{assert.equal(f.page.url(),t.live(t.slugs[0]));assert.equal(f.store.get(f.stateKey).done.length,0);assert.equal(f.store.get(`${t.prefix}_prefs`).autoNext,false);});
+    });
+    await scenario(t,390,'offline-save-failure',{},async f=>{
+      f.setFail(true);
+      // Force all state writes to fail by using the storage hook below.
+      f.failAny();
+      await f.page.evaluate(kind=>{const n=document.createElement('div');n.innerHTML=kind==='sr'?'<div class="room-block"><p class="ta-c">配信停止中</p></div>':'<div role="alert" class="alert alert-warning">現在配信していません</div>';document.body.append(n);},t.kind);
+      await f.tick(4000);
+      await f.check('failed skip write pauses on current page with zero completion',async()=>{assert.equal(f.page.url(),t.live(t.slugs[0]));assert.equal(f.store.get(f.stateKey).index,0);assert.equal(f.store.get(f.stateKey).done.length,0);});
+    });
     await scenario(t, 390, 'save-failure', {}, async f => {
       f.setFail(true); await f.page.evaluate(() => { window.playing = true; }); await f.tick(40000); await f.tick(10000);
       await f.check('failed final save pauses with no navigation, count, or exclusion', async () => { assert.equal(f.page.url(), t.live(t.slugs[0])); assert.equal(f.store.get(f.stateKey).done.length, 0); assert.match(await f.part('status').innerText(), /保存できません/); assert.equal((f.store.get(`${t.prefix}_broadcast_history`) || []).length, 0); });
-      f.setFail(false); await f.part('retry').click(); await f.tick(); await f.page.waitForURL(t.live(t.slugs[1]));
+      f.setFail(false); await f.part('retry').click(); await f.tick(6000); await f.page.waitForURL(t.live(t.slugs[1]));
       await f.check('explicit retry saves once and continues', async () => { assert.equal(f.store.get(f.stateKey).done.length, 1); });
     });
     await scenario(t, 390, 'restore-goal', { complete: true, adjustment: 19 }, async f => {
       if (t.kind === 'mx') await f.page.evaluate(() => { const n = document.createElement('div'); n.className = 'alert alert-success'; n.setAttribute('role', 'alert'); n.textContent = '視聴ボーナスGET！ 5/20'; document.body.append(n); });
-      await f.tick();
+      await f.tick(6000);
       await f.check('completed checkpoint auto-records once and stops at local target', async () => { assert.equal(f.store.get(f.stateKey).done.length, 1); assert.equal(f.store.get(f.stateKey).active, false); assert.equal(f.page.url(), t.live(t.slugs[0])); await f.tick(40000); assert.equal(f.store.get(f.stateKey).done.length, 1); });
     });
     await scenario(t, 390, 'official-limit', { official: t.kind === 'sr' }, async f => {

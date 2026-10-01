@@ -7,6 +7,7 @@ type Period = { key: string; start: number; end: number; label: string };
 type Room = { slug: string; name?: string; startedAt?: number | null };
 type State = { period: string; done: { slug: string; at: number; source?: string }[]; adjustment: number; queue: Room[]; index: number; active: boolean; checkpoint: { slug: string; elapsed: number } | null };
 type Runner = {
+  normalizeReviews: (raw: unknown) => {slug:string;period:string;at:number;source:string;reward:string}[];
   hydrationRoomId: (text: string, slug: string) => string;
   officialOnliveFallback: (url:string)=>string;
   repeatedMissionCount: (raw: unknown) => {achieved:number;received:number;pending:number;limit:number} | null;
@@ -149,7 +150,7 @@ test('both installers are self-contained and do not automate service actions', (
     assert.match(code,/if \(!isList && !current\?\.viewing\) return/);
   }
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
-  assert.match(srCode,/@version\s+1\.6\.0/);
+  assert.match(srCode,/@version\s+1\.6\.1/);
 });
 
 test('standalone installers share parsing and state helpers; service-specific receipt UI is independent', () => {
@@ -269,4 +270,18 @@ test('official home without live cards has a safe onlive fallback while onlive i
   assert.equal(sr.officialOnliveFallback('https://showroom-live.com/?genre_id=103&token=nope'),'https://www.showroom-live.com/onlive?genre_id=103');
   for (const u of ['https://www.showroom-live.com/onlive','https://www.showroom-live.com/r/x','https://evil.test/','http://www.showroom-live.com/','https://u@www.showroom-live.com/']) assert.equal(sr.officialOnliveFallback(u),'');
   assert.equal(mx.officialOnliveFallback('https://www.showroom-live.com/'),'');
+});
+
+
+test('review ledger keeps completion separate from reward proof and rejects fabricated storage', () => {
+  for (const runner of [sr, mx]) {
+    const slug = runner === sr ? 'one' : '100001', period = runner.periodAt(morning).key;
+    const record = {slug, period, at:morning, source:'timer'};
+    const reviews = runner.normalizeReviews([record]);
+    assert.equal(reviews[0].source,'timer'); assert.equal(reviews[0].reward,'unconfirmed');
+    const confirmed = runner.normalizeReviews([...reviews, {...record,reward:'official'},record]);
+    assert.equal(confirmed.length,1); assert.equal(confirmed[0].reward,'official'); assert.equal(confirmed[0].source,'timer');
+    assert.equal(runner.normalizeReviews([null, {...record,period:'wrong'}, {...record,source:'legacy'}, {...record,at:Infinity}, {...record,slug:'../bad'}]).length,0);
+    assert.equal(runner.normalizeReviews({malformed:true}).length,0);
+  }
 });

@@ -22,7 +22,7 @@ export const metadata: Metadata = {
 
 const features = [
   ["⏱️", "再生中だけカウント", "画面を見ていて、映像や音声が進んでいる時間だけを計測。"],
-  ["➡️", "時間になったら次へ", "30・32・35秒の再生で自動記録して次の候補へ。一時停止・自動OFFも可能。"],
+  ["➡️", "時間になったら次へ", "30・32・35秒の再生後、公式確認の猶予を経て記録・次へ。非配信は無加算でスキップ。"],
   ["🚫", "取得済みを候補外へ", "一度記録した配信を、同じ巡回で何度も開きにくくします。"],
   ["♡", "フォロー画面へ", "気になった配信者は公式プロフィールを別タブで開けます。"],
   ["📺", "広告は別タブ", "SHOWROOMの広告ページを別タブで開き、戻ると計測を自動再開。"],
@@ -48,11 +48,11 @@ export default function MissionRunnerPage() {
         <div className={styles.actions}>
           <a className={styles.primary} href={srInstaller}>
             🚀 SHOWROOM版をインストール
-            <small>v1.6.0</small>
+            <small>v1.6.1</small>
           </a>
           <a className={styles.secondary} href={mixchInstaller}>
             🎬 ミクチャ版をインストール
-            <small>v0.5.0 β</small>
+            <small>v0.5.1 β</small>
           </a>
         </div>
         <p className={styles.installNote}>
@@ -103,7 +103,7 @@ export default function MissionRunnerPage() {
           <span>配信一覧を開く</span><b>→</b><span>開始</span><b>→</b><span>30〜35秒見る</span><b>→</b><span>自動で記録・次へ</span>
         </div>
         <p className={styles.bodyCopy}>
-          開始後は設定秒数の再生で端末に記録し、次の候補へ自動で移動します。
+          開始後は設定秒数の再生に達したら、5秒の公式確認猶予の後で記録・次へ進みます。明確な非配信表示は自動でスキップします。未確認の記録から公式画面へ戻れます。
           初期設定はON。「自動記録・次へ」でOFFにできます。
           時間到達の記録は公式の取得確認とは別です。公式のGET・受取、再生開始、フォロー、広告の操作は自分で行います。
         </p>
@@ -134,12 +134,12 @@ export default function MissionRunnerPage() {
         <div className={styles.releaseGrid}>
           <div>
             <strong>SHOWROOM</strong>
-            <span>v1.6.0</span>
+            <span>v1.6.1</span>
             <p>iPhone Safari向け。公開β。</p>
           </div>
           <div>
             <strong>ミクチャ</strong>
-            <span>v0.5.0 β</span>
+            <span>v0.5.1 β</span>
             <p>公式コイン条件は未検証のためβ扱い。</p>
           </div>
         </div>
