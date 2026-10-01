@@ -10,9 +10,17 @@ Last updated: 2026-08-30 JST
 
 - SR v1.4.3はmain未取り込みのDraft PR #14にある。現在mainのSRはv1.0.2。#14を無断更新せず、`fix/sr-runner-stalls-official-20260930` を#14のhead `2abab4f`から作成し、依存する修正PRとして扱う。
 - 修正版SR v1.5.0: 32秒停止の再現条件（先頭動画停滞／GM保存遅延）を修正。終了配信からの手動脱出と再生再確認を追加。オーナー追加指示により公式連動は常時ON・失敗後も定期再試行。公式合計と端末履歴は分離。
-- Mixch v0.3.4は共通エンジンのメディア検出・途中保存を同期。公式通知連動は任意ONを維持。
+- 前版Mixch v0.3.4は共通エンジンのメディア検出・途中保存を同期。公式通知連動は任意ONだった。2026-10-01の追加指示でv0.4.0へ進め、常時通知連動・配信ごとの取得確認・未確認時の計上停止・公式画面への退避を追加。
 - 詳細と現行／旧版の差は `docs/WATCH-RUNNERS.md`、長期判断は `docs/DECISION_LOG.md`、新規回帰は `tools/watch-runners-stalls.browser.mjs`。
 - 実機SafariのUserscripts更新・ログイン済み公式数値との照合・報酬付与は未検証。手動再インストールが必要。mainへのmerge・一般公開βページの公開は今回行わない。
+
+## 2026-10-01 — ミクチャの取得未確認とGET画面（未merge）
+
+- `fix/mixch-official-confirm-20261001` はPR #16のhead `716ba8e`から分離。PR #14/#16を上書きせず、SHOWROOMスクリプトも変更しない。
+- ミクチャv0.4.0は公式成功通知の常時監視、配信IDに紐づいた取得確認、時間到達時のパネル退避を追加。取得未確認で記録して次へ進めない。スキップは無加算。本人確認は別表示とし公式合計を変更しない。
+- 端末メモ・公式合計・配信の取得確認を分離。旧版メモを公式取得済みへ昇格しない。全過去履歴の同期は未実装。iPhoneにはUserscriptsでre-installしてからページ再読込が必要。
+- `docs/WATCH-RUNNERS.md`、`tools/mixch-receipt.browser.mjs` に仕様と回帰を保存。レビュー・CI・本番マージは別確認。実機の公式付与をfixtureの成功と混同しない。
+- ローカル検証: lint（error 0・既存warning 5）、typecheck、全133テスト、production build成功。Chromiumの新しい取得確認回帰30項目（390/430/1280px）と、既存baseline・公式連動・SPA同期の全幅が成功。WebKitのバイナリをこの環境で取得できず、今回はWebKit・実機iPhoneとも未検証。
 
 ## 0. 最初に読む順番
 

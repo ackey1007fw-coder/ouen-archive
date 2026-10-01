@@ -26,7 +26,7 @@ const features = [
   ["🚫", "取得済みを候補外へ", "一度記録した配信を、同じ巡回で何度も開きにくくします。"],
   ["♡", "フォロー画面へ", "気になった配信者は公式プロフィールを別タブで開けます。"],
   ["📺", "広告は別タブ", "SHOWROOMの広告ページを別タブで開き、戻ると計測を自動再開。"],
-  ["🔗", "公式回数との連動", "SHOWROOMは起動時から公式連動。ミクチャは任意でONにできます。"],
+  ["🔗", "公式回数との連動", "SHOWROOMは起動時から公式連動。ミクチャは成功通知を常時確認し、取得未確認では計上しません。"],
 ] as const;
 
 export default function MissionRunnerPage() {
@@ -52,7 +52,7 @@ export default function MissionRunnerPage() {
           </a>
           <a className={styles.secondary} href={mixchInstaller}>
             🎬 ミクチャ版をインストール
-            <small>v0.3.4 β</small>
+            <small>v0.4.0 β</small>
           </a>
         </div>
         <p className={styles.installNote}>
@@ -138,7 +138,7 @@ export default function MissionRunnerPage() {
           </div>
           <div>
             <strong>ミクチャ</strong>
-            <span>v0.3.4 β</span>
+            <span>v0.4.0 β</span>
             <p>公式コイン条件は未検証のためβ扱い。</p>
           </div>
         </div>
