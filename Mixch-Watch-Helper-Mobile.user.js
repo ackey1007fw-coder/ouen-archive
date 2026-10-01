@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Mixch Watch Helper Mobile
 // @namespace    https://mixch.tv/
-// @version      0.3.4
-// @description  ミクチャの手動視聴メモβ。コイン付与・現行獲得条件は未検証。時間・件数は端末内の目安です。
+// @version      0.5.1
+// @description  ミクチャの実再生時間を計測し、時間到達で端末へ自動記録して次の配信へ移動。公式取得確認とは別に表示するβ版。
 // @author       ackey + ChatGPT
 // @match        https://mixch.tv/*
 // @grant        GM.getValue
@@ -15,7 +15,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "mx", "version": "0.3.4", "home": "https://mixch.tv/", "title": "🎬 ミクチャ視聴メモ β", "key": "mxwh_progress_v1", "id": "mxwh-mobile"};
+  const CONFIG = {"kind": "mx", "version": "0.5.1", "home": "https://mixch.tv/", "title": "🎬 ミクチャ視聴メモ β", "key": "mxwh_progress_v1", "id": "mxwh-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -168,7 +168,7 @@
     const done = (Array.isArray(s.done) ? s.done : []).filter(r => {
       if (!r || !liveUrl(r.slug) || !Number.isFinite(r.at) || r.at < period.start || r.at >= period.end || seen.has(recordKey(r)) || (validStart(r.startedAt) && r.startedAt > r.at)) return false;
       seen.add(recordKey(r)); return true;
-    }).slice(0, 300).map(r => ({ slug: r.slug, startedAt: validStart(r.startedAt), at: r.at }));
+    }).slice(0, 300).map(r => ({ slug: r.slug, startedAt: validStart(r.startedAt), at: r.at, source: ['timer', 'official', 'manual'].includes(r.source) ? r.source : 'legacy' }));
     const queue = roomsOnly(s.queue);
     const index = integer(s.index, 0, Math.max(0, queue.length - 1), 0);
     const cp = s.checkpoint;
@@ -178,10 +178,10 @@
         ? { slug: cp.slug, startedAt: validStart(cp.startedAt), elapsed: cp.elapsed, hold: cp.hold === true } : null };
   }
   const countDone = (s, target) => Math.max(0, Math.min(target, s.done.length + s.adjustment));
-  function addDone(s, room, now, period) {
+  function addDone(s, room, now, period, source = 'legacy') {
     const r = asRoom(room);
     if (s.period !== period.key || now < period.start || now >= period.end || !liveUrl(r.slug)) return false;
-    if (!isRecorded(r, s.done)) s.done.push({ slug: r.slug, startedAt: validStart(r.startedAt), at: now });
+    if (!isRecorded(r, s.done)) s.done.push({ slug: r.slug, startedAt: validStart(r.startedAt), at: now, source: ['timer', 'official', 'manual'].includes(source) ? source : 'legacy' });
     s.checkpoint = null;
     return true;
   }
@@ -263,13 +263,39 @@
       return read(info?.room_url_key) === slug ? validRoomId(read(info?.room_id)) : '';
     } catch { return ''; }
   }
+  function visibleElement(node, doc) {
+    if (!node.getClientRects().length) return false;
+    for (let n = node; n; n = n.parentElement) {
+      if (n.hidden || n.getAttribute('aria-hidden') === 'true') return false;
+      const style = doc.defaultView.getComputedStyle(n);
+      if (style.display === 'none' || ['hidden', 'collapse'].includes(style.visibility) || style.opacity === '0') return false;
+    }
+    return true;
+  }
   function stoppedRoom(doc) {
-    if (CONFIG.kind !== 'sr') return false;
-    return [...doc.querySelectorAll('.room-block p.ta-c')].some(n => n.textContent.trim() === '配信停止中' && !n.closest('[hidden],[aria-hidden="true"]') && doc.defaultView.getComputedStyle(n).display !== 'none');
+    // Exact first-party status text only: chat, profiles, playback failure and
+    // missing/paused media do not prove a broadcast is offline.
+    const selector = CONFIG.kind === 'sr' ? '.room-block p.ta-c' : '[role="alert"].alert';
+    return [...doc.querySelectorAll(selector)].some(n => visibleElement(n, doc) && (CONFIG.kind === 'sr'
+      ? n.textContent.trim() === '配信停止中'
+      : /^(?:現在配信していません|ライブが終了しています)[。！!]?$/.test(n.textContent.trim())));
+  }
+  function normalizeReviews(value) {
+    const result = new Map(), rank = { unconfirmed: 0, manual: 1, official: 2 };
+    for (const r of Array.isArray(value) ? value : []) {
+      if (!r || !liveUrl(r.slug) || !Number.isSafeInteger(r.at) || r.at <= 0 || r.period !== periodAt(r.at).key || !['timer', 'official', 'manual'].includes(r.source)) continue;
+      const startedAt = validStart(r.startedAt);
+      if (startedAt && startedAt > r.at) continue;
+      const reward = ['official', 'manual'].includes(r.reward) ? r.reward : r.source === 'official' ? 'official' : r.source === 'manual' ? 'manual' : 'unconfirmed';
+      const key = `${r.period}:${recordKey(r)}`, previous = result.get(key);
+      result.set(key, { slug: r.slug, startedAt, period: r.period, at: previous?.at || r.at, source: previous?.source || r.source,
+        reward: previous && rank[previous.reward] > rank[reward] ? previous.reward : reward });
+    }
+    return [...result.values()].sort((a, b) => a.at - b.at).slice(-300);
   }
   const officialAdsUrl = 'https://www.showroom-live.com/lottery/ad_reward';
 
-  const api = { hydrationRoomId, showroomLoggedOutHint, officialOnliveFallback, repeatedMissionCount, mixchBonusProgress, freshLinkedSnapshot, isAdPage, officialMissionSummary, missionReadUrl, listSource, returnListUrl, officialRooms, parseStartedAt, normalizeHistory, isRecorded, recordKey, periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, roomsOnly };
+  const api = { normalizeReviews, stoppedRoom, hydrationRoomId, showroomLoggedOutHint, officialOnliveFallback, repeatedMissionCount, mixchBonusProgress, freshLinkedSnapshot, isAdPage, officialMissionSummary, missionReadUrl, listSource, returnListUrl, officialRooms, parseStartedAt, normalizeHistory, isRecorded, recordKey, periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, roomsOnly };
   if (typeof document === 'undefined') {
     if (typeof module !== 'undefined') module.exports = api;
     return;
@@ -336,7 +362,7 @@
     const prefix = CONFIG.key;
     let prefs = await GM.getValue(`${prefix}_prefs`, {});
     prefs = { seconds: [30, 32, 35].includes(prefs?.seconds) ? prefs.seconds : 32,
-      target: [10, 20].includes(prefs?.target) ? prefs.target : 20 };
+      target: [10, 20].includes(prefs?.target) ? prefs.target : 20, autoNext: prefs?.autoNext !== false };
     let favorites = roomsOnly(await GM.getValue(`${prefix}_favorites`, []));
     let period = periodAt(Date.now());
     const storageKey = p => `${prefix}_${p.key}`;
@@ -370,7 +396,12 @@
     let busy = false, elapsed = 0, paused = false, ready = false, notice = '', ended = false, boundaryStop = false;
     let adHold = false; // legacy checkpoint compatibility; new ad tabs never set this true
     let lastWall = performance.now(), mediaSamples = new WeakMap(), pending = Promise.resolve();
-    let playbackStatus = '', storageSyncing = false;
+    let playbackStatus = '', storageSyncing = false, graceElapsed = 0, offlineElapsed = 0;
+    const reviewKey = `${prefix}_watch_reviews`;
+    let reviews = normalizeReviews([...(normalizeReviews(await GM.getValue(reviewKey, []))), ...state.done.map(r => ({ ...r, period: period.key }))]);
+    // Upgrade seeds must survive subsequent saves and period-state resets.
+    await GM.setValue(reviewKey, reviews);
+    if (!alive()) return;
     const titleFromPage = () => cleanName(document.querySelector('h1')?.textContent || document.title || current?.slug);
     const activeHere = () => !isList && state.active && state.queue[state.index]?.slug === current.slug && !ended;
     const roomHere = () => state.queue[state.index]?.slug === current?.slug ? state.queue[state.index] : { slug: current?.slug, startedAt: null };
@@ -380,16 +411,17 @@
       elapsed = activeHere() && state.checkpoint && recordKey(state.checkpoint) === recordKey(roomHere()) ? Math.min(state.checkpoint.elapsed, prefs.seconds * 1000) : 0;
       adHold = false; // Ignore legacy ad holds so returning users resume normally.
       ready = elapsed >= prefs.seconds * 1000;
+      graceElapsed = 0; offlineElapsed = 0;
       lastWall = performance.now(); mediaSamples = new WeakMap();
     }
     resetTimer();
     if (!alive()) return;
     const host = document.createElement('section'); host.id = CONFIG.id; ctx.host = host;
-    host.style.cssText = 'position:fixed;left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));z-index:2147483647';
+    host.style.cssText = 'position:fixed;left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));z-index:2147483647;pointer-events:none';
     const root = host.attachShadow({ mode: 'open' });
     root.innerHTML = `<style>
       :host{font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#fff;color-scheme:dark}
-      *{box-sizing:border-box} .box{background:rgba(16,20,28,.97);padding:12px;border:1px solid #424956;border-radius:18px;box-shadow:0 6px 24px #0005;max-height:70vh;overflow:auto}
+      *{box-sizing:border-box} .box{pointer-events:auto;background:rgba(16,20,28,.97);padding:12px;border:1px solid #424956;border-radius:18px;box-shadow:0 6px 24px #0005;max-height:70vh;overflow:auto}
       .top,.row{display:flex;gap:8px;align-items:center}.top strong{flex:1;min-width:0;font-size:16px}.row{margin-top:8px;flex-wrap:wrap}
       .sub,.note{font-size:12px;color:#cdd4de}.sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .progress{font-weight:800;margin:6px 0}.time{font-size:36px;font-weight:900;line-height:1.1;text-align:center;margin:4px}
@@ -400,6 +432,7 @@
       [hidden]{display:none!important} summary{cursor:pointer;padding:8px 0;min-height:44px} details{margin-top:4px}
       .fav{display:flex;gap:6px;margin:6px 0}.fav a{color:#bee6ff;flex:1}.status{font-size:13px;min-height:20px;margin:4px 0}.warn{color:#ffdc9e}
       .compact .fold,.compact details,.compact .name,.compact .time{display:none}.box.compact{padding:8px 12px}
+      .official-view{padding:0!important;max-width:200px}.official-view>div:not(.top):not(#autoControls):not(#autoStatus),.official-view>details,.official-view .top strong{display:none!important}.official-view .top{gap:0}.official-view #compact{width:100%;min-height:44px}.official-view #autoToggle{font-size:12px;width:100%}
     </style><div class="box">
       <div class="top"><strong id="title"></strong><button id="compact" class="small">小さく</button></div>
       <div class="sub" id="source"></div><div class="sub" id="period"></div><div class="progress" id="total"></div>
@@ -407,7 +440,10 @@
       <div id="linkedStatus" class="note" role="status"></div><div id="accountWarning" class="warn" role="status"></div>
       <div class="sub name" id="name"></div><div class="time" id="time"></div><div class="status" id="status" role="status"></div>
       <div class="row" id="listControls"><select id="seconds" aria-label="視聴目安秒数"><option value="30">30秒</option><option value="32">32秒</option><option value="35">35秒</option></select><select id="target" aria-label="目標ルーム数"><option value="10">10件</option><option value="20">20件</option></select><button class="primary" id="start">続きから開始</button></div>
+      <details id="reviewBox"><summary id="reviewSummary">取得未確認の視聴記録</summary><div class="note">公式で取得を確認してください。戻っても自動では再計上しません。最新300件を端末に保存します。</div><div id="reviewLinks"></div></details>
+      <div class="row" id="autoControls"><button id="autoToggle">自動記録・次へ：ON</button></div><div class="note" id="autoStatus" role="status"></div>
       <div class="row" id="watchControls"><button class="primary" id="next" disabled>記録して次へ</button><button id="skip">スキップ</button></div>
+      <div class="row" id="receiptControls"><button id="revealOfficial">公式画面を見る</button><button id="confirmReceipt">公式で取得を確認した</button></div>
       <div class="row fold" id="discover"><a class="action" id="follow" target="_blank" rel="noopener noreferrer">♡ フォロー画面</a><button id="favorite">☆ あとで見る</button></div><div class="row fold" id="excludeControls"><button id="exclude">取得済みなので除外</button></div>
       <div class="row fold" id="adsControls"><a class="action" id="openAds" href="https://www.showroom-live.com/lottery/ad_reward" target="_blank" rel="noopener noreferrer">広告を別タブで開く ↗</a></div>
       <div class="row fold" id="pauseControls"><button id="pause">一時停止</button><button id="retry">再生を再確認</button><button id="back">中断・一覧へ</button></div>
@@ -511,15 +547,38 @@
       }
     }
     const linkKey = `${prefix}_official_link_session`;
-    let linkedEnabled = CONFIG.kind === 'sr', linkedSnapshot = null, selectedMission = '';
-    try { const saved = JSON.parse(sessionStorage.getItem(linkKey) || 'null'); linkedEnabled = CONFIG.kind === 'sr' || saved?.enabled === true; selectedMission = String(saved?.selected || '').slice(0, 20); linkedSnapshot = CONFIG.kind === 'sr' ? null : freshLinkedSnapshot(saved?.snapshot, Date.now()); } catch { /* Storage denial keeps linking off. */ }
+    const receiptKey = `${prefix}_receipt_session`;
+    let linkedEnabled = true, linkedSnapshot = null, selectedMission = '', receipt = null;
+    try { const saved = JSON.parse(sessionStorage.getItem(linkKey) || 'null'); selectedMission = String(saved?.selected || '').slice(0, 20); linkedSnapshot = CONFIG.kind === 'sr' ? null : freshLinkedSnapshot(saved?.snapshot, Date.now()); sessionStorage.removeItem(receiptKey); } catch { /* Linking stays ON in memory if storage is denied. */ }
+    function receiptHere() {
+      return CONFIG.kind === 'mx' && current?.viewing && !stoppedRoom(document) && receipt?.slug === current.slug && receipt.period === period.key && ['official', 'manual'].includes(receipt.source) && Number.isSafeInteger(receipt.at) && receipt.at <= Date.now() && Date.now() - receipt.at <= 15 * 60000 ? receipt : null;
+    }
+    function saveReceipt(source) {
+      if (!current?.viewing || document.hidden || stoppedRoom(document)) return;
+      receipt = { slug: current.slug, period: period.key, at: Date.now(), source };
+      // Broadcast/account identity is unavailable: proof belongs only to this
+      // visible document, never a reload, return visit or bfcache restoration.
+
+    }
+    let officialView = false;
+    function showOfficial(value) {
+      officialView = value;
+      root.querySelector('.box').classList.toggle('official-view', value);
+      host.style.top = value ? 'max(8px,env(safe-area-inset-top))' : '';
+      host.style.bottom = value ? 'auto' : 'max(10px,env(safe-area-inset-bottom))';
+      host.style.right = value ? 'auto' : '10px';
+      render();
+    }
     function saveLinked() { try { sessionStorage.setItem(linkKey, JSON.stringify({ enabled: linkedEnabled, selected: selectedMission, snapshot: linkedSnapshot })); } catch { /* In-memory mode only. */ } }
     const linkedCount = () => linkedEnabled ? freshLinkedSnapshot(linkedSnapshot, Date.now()) : null;
-    function routingRemaining(s) { const official = linkedCount(); return official ? official.limit - official.achieved : Math.max(0, prefs.target - countDone(s, prefs.target)); }
+    function routingRemaining(s) {
+      const official = linkedCount(), local = Math.max(0, prefs.target - countDone(s, prefs.target));
+      return official ? (prefs.autoNext ? Math.min(local, official.limit - official.achieved) : official.limit - official.achieved) : local;
+    }
     function renderLinked() {
-      el('linkToggle').textContent = CONFIG.kind === 'sr' ? '公式の回数を再確認' : linkedEnabled ? '公式連動を解除' : '公式連動を使う';
+      el('linkToggle').textContent = CONFIG.kind === 'sr' ? '公式の回数を再確認' : '公式通知を再確認';
       const c = linkedCount();
-      el('linkedStatus').textContent = !linkedEnabled ? '公式連動はOFF。下の件数は端末の手動記録です。' : c ? `公式連動：達成 ${c.achieved}/${c.limit}・受取 ${c.received}・未受取 ${c.pending} ／ 残り ${c.limit-c.achieved}回（${new Date(c.at).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'})}確認）` : CONFIG.kind === 'mx' ? '公式通知の確認待ち。次の「視聴ボーナスGET！」を検出するまで、端末の手動記録で進みます。' : '公式の連続視聴ミッションを確認待ち。未確認の間は端末の手動記録で進みます。';
+      el('linkedStatus').textContent = c ? `公式連動：達成 ${c.achieved}/${c.limit}・受取 ${c.received}・未受取 ${c.pending} ／ 残り ${c.limit-c.achieved}回（${new Date(c.at).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'})}確認）` : CONFIG.kind === 'mx' ? '公式連動ON・通知の確認待ち。過去の取得数は不明です。時間到達だけでは取得済みにしません。' : '公式の連続視聴ミッションを確認待ち。未確認の間は端末の記録で進みます。';
     }
     function clearLinked() { linkedSnapshot = null; saveLinked(); renderLinked(); }
     function acceptLinked(c) {
@@ -540,23 +599,39 @@
     el('linkedMission').addEventListener('change', () => { selectedMission = el('linkedMission').value; linkedSnapshot = null; saveLinked(); if (officialSnapshot) acceptOfficialRows(officialSnapshot.rows); });
     el('linkToggle').addEventListener('click', () => {
       if (CONFIG.kind === 'sr') { void readOfficial(); return; }
-      linkedEnabled = CONFIG.kind === 'sr' || !linkedEnabled; linkedSnapshot = null; saveLinked(); render();
-      if (CONFIG.kind === 'sr' && officialAllowed) { el('officialAuto').checked = linkedEnabled; if (linkedEnabled) void readOfficial(); }
+      scanBonusNotices(); render();
     });
-    el('linkHelp').textContent = CONFIG.kind === 'sr' ? '公式連動は常にON。表示中は60秒ごと、配信移動・タブ復帰・目安到達時にも再確認します。未取得は確認待ちです。アカウント切替後は再確認してください。端末履歴は変更しません。' : 'このタブで新しく表示された公式の視聴ボーナス通知から残り回数を更新。通知前の過去分は未確認です。アカウント切替時は一度解除。';
+    el('linkHelp').textContent = CONFIG.kind === 'sr' ? '公式連動は常にON。表示中は60秒ごと、配信移動・タブ復帰・目安到達時にも再確認します。未取得は確認待ちです。アカウント切替後は再確認してください。端末履歴は変更しません。' : '公式の新しい「視聴ボーナスGET！」通知を常時確認。成功通知で取得済み表示と公式回数を更新します。過去分の全件取得はできません。アカウント切替時はこのタブを閉じて、新しいタブで開いてください。';
     if (CONFIG.kind === 'sr') { el('officialAuto').checked = true; el('officialAuto').disabled = true; el('officialAuto').parentElement.hidden = true; }
     if (linkedEnabled && officialAllowed) el('officialAuto').checked = true;
     const seenToasts = new WeakMap();
     const toastSelector = '[role="alert"].alert.alert-success';
-    for (const node of document.querySelectorAll(toastSelector)) seenToasts.set(node,node.textContent);
-    if (CONFIG.kind === 'mx') every(() => {
-      if (!linkedEnabled || document.hidden) return;
-      for (const node of document.querySelectorAll(toastSelector)) {
-        if (seenToasts.get(node) === node.textContent || !node.getClientRects().length || node.closest('[hidden],[aria-hidden="true"]')) continue;
-        seenToasts.set(node,node.textContent);
-        const parsed = mixchBonusProgress(node.textContent); if (parsed) acceptLinked(parsed);
+    const visibleNotice = node => {
+      if (!node.getClientRects().length || node.closest('[hidden],[aria-hidden="true"]')) return false;
+      for (let parent = node; parent; parent = parent.parentElement) {
+        const style = getComputedStyle(parent);
+        if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || style.opacity === '0') return false;
       }
-    },250);
+      return true;
+    };
+    for (const node of document.querySelectorAll(toastSelector)) seenToasts.set(node, { text: node.textContent, visible: visibleNotice(node) });
+    function scanBonusNotices() {
+      if (!alive() || document.hidden) return;
+      for (const node of document.querySelectorAll(toastSelector)) {
+        const visible = visibleNotice(node), previous = seenToasts.get(node), text = node.textContent;
+        seenToasts.set(node, { text, visible });
+        if (!visible || (previous?.visible && previous.text === text)) continue;
+        const parsed = mixchBonusProgress(text);
+        if (parsed) { if (current?.viewing) saveReceipt('official'); acceptLinked(parsed); }
+      }
+    }
+    if (CONFIG.kind === 'mx') {
+      every(scanBonusNotices, 250);
+      const observer = new MutationObserver(scanBonusNotices);
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'aria-hidden'] });
+      ctx.signal.addEventListener('abort', () => observer.disconnect(), { once: true });
+    }
+    el('revealOfficial').addEventListener('click', () => showOfficial(true));
     el('adsControls').hidden = CONFIG.kind !== 'sr' || isList;
     el('openAds').addEventListener('click', () => {
       if (CONFIG.kind !== 'sr' || isList || !current?.slug) return;
@@ -567,23 +642,53 @@
       render();
     });
 
+    let renderedReviews = '';
+    function renderReviews() {
+      const pendingReviews = reviews.filter(r => r.reward === 'unconfirmed');
+      el('reviewSummary').textContent = `取得未確認の視聴記録 ${pendingReviews.length}件`;
+      const signature = JSON.stringify(pendingReviews);
+      if (signature === renderedReviews) return;
+      renderedReviews = signature; el('reviewLinks').replaceChildren();
+      for (const r of pendingReviews.slice().reverse()) {
+        const a = document.createElement('a'); a.className = 'action'; a.style.display = 'block'; a.style.marginTop = '6px';
+        a.href = liveUrl(r.slug); a.target = '_blank'; a.rel = 'noopener noreferrer';
+        a.textContent = `${r.slug} — ${new Date(r.at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })} 公式で確認 ↗`;
+        const row = document.createElement('div'); row.className = 'row';
+        const confirm = document.createElement('button'); confirm.textContent = '公式で確認した';
+        confirm.addEventListener('click', () => void run(async () => {
+          if (!window.confirm(`${r.slug} の ${new Date(r.at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })} の視聴について、公式の取得を確認しましたか？ 時間到達や合計件数だけでは確認できません。`)) return;
+          await saveReview({ ...r, reward: 'manual' }); renderReviews();
+        }));
+        row.append(a, confirm); el('reviewLinks').append(row);
+      }
+    }
+    async function saveReview(record) {
+      const raw = await GM.getValue(reviewKey, []);
+      const next = normalizeReviews([...(Array.isArray(raw) ? raw : []), record]);
+      await GM.setValue(reviewKey, next); reviews = next;
+    }
     function render() {
       const count = countDone(state, prefs.target), left = routingRemaining(state);
-      renderLinked();
+      renderLinked(); renderReviews();
       const cutoff = CONFIG.kind === 'sr' ? period.label.startsWith('昼') ? '15:00' : '3:00' : '0:00';
       el('period').textContent = `${period.label} / 日本時間`;
       const localLeft = Math.max(0, prefs.target - count);
       const officialCount = linkedCount();
-      el('total').textContent = officialCount ? `公式連動 ${officialCount.achieved} / ${officialCount.limit}　あと${left}回` : `端末の記録 ${count} / ${prefs.target}　あと${localLeft}件（${cutoff}まで）`;
+      el('total').textContent = officialCount ? `公式連動 ${officialCount.achieved} / ${officialCount.limit}　あと${left}回` : `端末の記録 ${count} / ${prefs.target}　あと${localLeft}件（${cutoff}まで）${CONFIG.kind === 'mx' ? ' ※公式の取得数は未確認' : ''}`;
       const loggedOut = showroomLoggedOutHint(document);
       el('accountWarning').textContent = loggedOut ? '⚠️ Safari側のSHOWROOMが未ログインです。ChromeのログインはSafariへ引き継がれません。公式ミッション・広告を使う前にSafariでログインしてください。' : '';
       el('listControls').hidden = !isList;
       el('watchControls').hidden = isList;
+      el('receiptControls').hidden = isList || CONFIG.kind !== 'mx';
+      el('confirmReceipt').disabled = busy || !!receiptHere() || blockedHere();
       el('pauseControls').hidden = isList;
       el('discover').hidden = isList;
       el('excludeControls').hidden = isList || CONFIG.kind !== 'sr';
       el('exclude').disabled = busy || blockedHere();
       el('time').hidden = isList;
+      el('autoToggle').textContent = `自動記録・次へ：${prefs.autoNext ? 'ON（押すと停止）' : 'OFF'}`;
+      const timed = state.done.filter(r => r.source === 'timer').length;
+      el('autoStatus').textContent = `${prefs.autoNext ? `${prefs.seconds}秒の再生後、5秒以内の公式確認を待って次へ。明確な非配信は無加算スキップ。` : '自動移動は停止中。'}時間到達の記録 ${timed}件（公式取得の確認とは別）`;
       if (isList) {
         const allRooms = listRooms();
         const candidates = allRooms.filter(r => !blocked(r));
@@ -605,9 +710,31 @@
         el('pause').disabled = busy || !activeHere();
         el('pause').textContent = paused ? '再開' : '一時停止';
         el('status').textContent = offline ? 'この配信は終了しています。記録を増やさず、スキップか次の未記録へ進んでください。' : officialCount && !left ? '公式の目標に到達しました。未受取分は公式画面で受け取ってください。' : notice || (counted ? 'この配信は記録済み。計測・再計上せず、候補から外します。' : !activeHere() ? '計測を始めるか、一覧から続けてください。' : paused ? '一時停止中' : ready ? '公式側を確認してから、記録して次へ進んでください。' : playbackStatus || '映像・音声の再生進行中だけ計測。未再生・停止・画面外は数えません。');
+        if (CONFIG.kind === 'mx') {
+          const confirmed = receiptHere();
+          if (confirmed) {
+            el('time').textContent = confirmed.source === 'official' ? '取得確認済み' : '本人確認済み';
+            el('next').textContent = counted ? '次の未記録へ ▶' : '確認済み・記録して次へ ▶';
+            el('next').disabled = busy || boundaryStop;
+            el('status').textContent = confirmed.source === 'official' ? 'この配信の公式「視聴ボーナスGET！」通知を確認しました。' : '本人が公式画面で取得を確認しました。自動検出・公式回数の更新とは別です。';
+          } else if (!counted && !offline) {
+            el('next').textContent = activeHere() ? (prefs.autoNext ? '自動記録・次へ待機' : '取得未確認・次へ待機') : 'この配信を計測';
+            el('next').disabled = busy || boundaryStop || !left || activeHere();
+            el('time').textContent = ready ? (prefs.autoNext ? '時間到達・記録中' : '取得未確認') : el('time').textContent;
+            el('status').textContent = ready ? (prefs.autoNext ? '視聴は完了、取得は未確認です。公式GETを確認できる猶予の後、未確認記録を残して次へ進みます。' : '時間の目安には到達しましたが、取得は未確認です。公式画面でGETを確認してください。反応がなければ未確認のままスキップできます。') : el('status').textContent;
+          } else if (counted) {
+            el('time').textContent = '端末メモ済み';
+            el('status').textContent = '端末にメモがあります。公式の取得は未確認です。過去の端末メモを取得確認済みとは扱いません。';
+          }
+        }
+        if (notice) el('status').textContent = notice;
+        if (prefs.autoNext && ready && activeHere() && !paused && !offline) {
+          el('autoStatus').textContent = `視聴完了。公式取得は別確認。あと${Math.max(0, Math.ceil((5000 - graceElapsed) / 1000))}秒で保存して次へ。待つ場合は自動OFFを押してください。`;
+        }
         el('favorite').textContent = favorites.some(r => r.slug === current.slug) ? '★ 保存済み' : '☆ あとで見る';
       }
       el('adjust').disabled = busy; el('reset').disabled = busy;
+      if (officialView) el('compact').textContent = prefs.autoNext ? '視聴完了・パネルを戻す' : receiptHere() ? (receiptHere().source === 'official' ? '取得確認済み・戻す' : '本人確認済み・戻す') : '取得未確認・戻す';
     }
     async function rollover() {
       const p = periodAt(Date.now());
@@ -615,11 +742,13 @@
       clearLinked(); el('officialAuto').checked = CONFIG.kind === 'sr'; officialSnapshot = null; el('officialResult').textContent = '時間帯が切り替わりました。公式データは再読取が必要です。';
       period = p; history = await readHistory(); state = await readState(p); if (!state.active) state.listUrl = backUrl; await GM.setValue(storageKey(p), state);
       ended = true; elapsed = 0; ready = false; mediaSamples = new WeakMap();
+      receipt = null;
+      try { sessionStorage.removeItem(receiptKey); } catch { /* In-memory only. */ }
       boundaryStop = CONFIG.kind === 'sr' && !isList;
       notice = boundaryStop ? '時間帯が切り替わりました。同じ配信の継続では再達成できません。一覧に戻り、別の配信へ進んでください。' : '時間帯が切り替わりました。新しい枠の記録に切り替えています。';
       render(); return true;
     }
-    function transact(fn, requireActive = false) {
+    function transact(fn, requireActive = false, beforeCommit = null) {
       const p = period, runId = state.run, expectedIndex = state.index;
       const work = pending.then(async () => {
         if (periodAt(Date.now()).key !== p.key) { await rollover(); return false; }
@@ -631,7 +760,10 @@
           state = latest; ended = true; notice = '別の画面で進んだため、この画面の計測を停止しました。'; render(); return false;
         }
         history = await readHistory();
-        await fn(latest); if (!alive()) return false; await GM.setValue(storageKey(p), latest);
+        if (await fn(latest) === false || !alive()) return false;
+        const undo = beforeCommit ? await beforeCommit() : null;
+        try { await GM.setValue(storageKey(p), latest); }
+        catch (error) { if (undo) await undo(); throw error; }
         if (period.key === p.key) state = latest;
         return true;
       });
@@ -642,7 +774,7 @@
       if (!alive() || busy) return;
       busy = true; render();
       try { if (!await rollover()) await fn(); }
-      catch { paused = true; notice = '保存できませんでした。移動せず再読み込みし、記録を確認してください。'; }
+      catch { paused = true; notice = '保存できませんでした。移動せず再読み込みし、記録を確認してください。'; if (officialView) showOfficial(false); }
       finally { busy = false; render(); }
     }
     async function remember(room, at = Date.now()) {
@@ -651,10 +783,22 @@
       history = normalizeHistory([...latest, { slug: room.slug, startedAt: validStart(room.startedAt), at }]);
       await GM.setValue(historyKey, history);
     }
+    async function prepareHistory(room) {
+      if (CONFIG.kind !== 'sr' || !room) return null;
+      const previous = (await readHistory()).find(r => r.slug === room.slug), at = Date.now();
+      await remember(room, at);
+      // Undo only our own high-water mark if the period-state write fails.
+      return async () => {
+        const latest = await readHistory();
+        history = normalizeHistory([...latest.filter(r => r.slug !== room.slug || r.at !== at), ...(previous ? [previous] : [])]);
+        await GM.setValue(historyKey, history);
+      };
+    }
     function bind(id, fn) { el(id).addEventListener('click', () => void run(fn)); }
     const checkpoint = () => activeHere() ? transact(s => { s.checkpoint = { slug: current.slug, startedAt: validStart(roomHere().startedAt), elapsed, hold: false }; }, true) : Promise.resolve(true);
     bind('start', async () => {
       await pending; history = await readHistory(); state = await readState(period);
+      if (routingRemaining(state) <= 0) { notice = '目標に到達しています。公式の結果・受取を確認してください。'; return; }
       const rooms = available();
       if (!rooms.length) { const fallback = officialOnliveFallback(location.href); if (fallback) navigate(fallback); return; }
       if (state.checkpoint) {
@@ -664,8 +808,17 @@
       const ok = await transact(s => { s.listUrl = returnListUrl(location.href); s.queue = rooms.filter(r => !isRecorded(r, [...history, ...s.done])); s.index = 0; s.active = s.queue.length > 0; s.run = `${Date.now()}-${Math.random()}`; });
       if (ok && state.active && periodAt(Date.now()).key === period.key) navigate(liveUrl(state.queue[0].slug));
     });
-    async function advance(skip) {
-      if (boundaryStop) return;
+    function canAutoAdvance() { return !busy && autoAllowed(false) && graceElapsed >= 5000; }
+    // OFF/pause/hidden and explicit offline status are checked again before storage.
+    function autoAllowed(skip = false) {
+      return alive() && prefs.autoNext && activeHere() && !paused && !document.hidden && !boundaryStop && periodAt(Date.now()).key === period.key &&
+        (skip ? stoppedRoom(document) && offlineElapsed >= 1500 : ready && !blockedHere() && !stoppedRoom(document));
+    }
+    function advanceRemaining(s, automatic) {
+      return automatic ? Math.min(routingRemaining(s), Math.max(0, prefs.target - countDone(s, prefs.target))) : routingRemaining(s);
+    }
+    async function advance(skip, automatic = false) {
+      if (boundaryStop || (automatic && !autoAllowed(skip))) return;
       if (!activeHere()) {
         const cache = await readListCache();
         if (skip || blockedHere()) {
@@ -686,30 +839,64 @@
           s.listUrl = cache.listUrl || backUrl;
           s.queue = [currentRoom, ...rest]; s.index = 0; s.run = `${Date.now()}-${Math.random()}`; s.active = true;
         });
-        if (ok) { ended = false; notice = ''; resetTimer(); } return;
+        if (ok) { ended = false; notice = ''; resetTimer(); if (CONFIG.kind === 'mx' && receiptHere()) await advance(false); } return;
       }
-      if (!skip && !ready && !blockedHere()) return;
-      let destination = '';
+      if (!skip && !blockedHere() && (CONFIG.kind === 'mx' ? !(receiptHere() || (automatic && ready)) : !ready)) return;
+      let destination = '', recordedRoom = null;
+      const priorPosition = { run: state.run, index: state.index, active: state.active, checkpoint: state.checkpoint };
       const ok = await transact(async s => {
+        if (automatic && !autoAllowed(skip)) return false;
+        if (automatic && countDone(s, prefs.target) >= prefs.target) { s.active = false; return; }
         const room = s.queue[s.index], at = Date.now();
         if (!skip && !isRecorded(room, [...history, ...s.done])) {
-          if (!addDone(s, room, at, period)) throw new Error('Period changed');
-          await remember(room, at);
+          if (!addDone(s, room, at, period, CONFIG.kind === 'mx' && receiptHere() ? receiptHere().source : 'timer')) throw new Error('Period changed');
+          recordedRoom = room;
+          const record = s.done.find(r => recordKey(r) === recordKey(room));
+          await saveReview({ ...record, period: period.key });
         }
+        if (automatic && !autoAllowed(skip)) return false;
         s.checkpoint = null;
-        if (routingRemaining(s) > 0) {
+        if (advanceRemaining(s, automatic) > 0) {
           for (let i = s.index + 1; i < s.queue.length; i++) {
             if (!isRecorded(s.queue[i], [...history, ...s.done])) { s.index = i; destination = liveUrl(s.queue[i].slug); break; }
           }
         }
         if (!destination) s.active = false;
-      }, true);
+      }, true, () => prepareHistory(recordedRoom));
       if (!ok || periodAt(Date.now()).key !== period.key) return;
+      await pending;
+      if (periodAt(Date.now()).key !== period.key) { await rollover(); return; }
+      if (automatic && (!prefs.autoNext || paused || document.hidden || !alive() || (skip ? !stoppedRoom(document) : stoppedRoom(document)))) {
+        if (skip && alive()) {
+          const committedIndex = state.index;
+          const restored = await transact(s => {
+            if (s.run !== priorPosition.run || s.index !== committedIndex) return false;
+            Object.assign(s, priorPosition);
+          });
+          ended = !restored; offlineElapsed = 0;
+          notice = 'スキップを取り消しました。自動ONでこの候補から再開します。';
+        } else { ended = true; notice = '時間到達を記録しました。自動移動は停止しました。'; }
+        return;
+      }
       if (destination) navigate(destination);
-      else if (routingRemaining(state) > 0) navigate(backUrl);
+      else if (advanceRemaining(state, automatic) > 0) navigate(backUrl);
       else { ended = true; notice = '目標まで記録しました。公式の結果・受取も確認してください。'; }
     }
+    el('autoToggle').addEventListener('click', () => {
+      prefs.autoNext = !prefs.autoNext;
+      if (prefs.autoNext && officialView) showOfficial(false);
+      notice = prefs.autoNext ? '時間到達での自動記録・移動を開始します。' : '自動記録・移動を停止しました。';
+      const saved = { ...prefs };
+      const work = pending.then(() => GM.setValue(`${prefix}_prefs`, saved));
+      pending = work.catch(() => { prefs.autoNext = false; notice = '設定を保存できないため、自動移動を停止しました。'; render(); });
+      render();
+    });
     bind('next', () => advance(stoppedRoom(document))); bind('skip', () => advance(true));
+    bind('confirmReceipt', async () => {
+      if (CONFIG.kind !== 'mx' || !current?.viewing || blockedHere()) return;
+      if (!window.confirm('公式画面で、この配信の視聴ボーナス取得を確認しましたか？ 時間到達や所持コインだけでは確認できません。')) return;
+      saveReceipt('manual'); notice = '本人確認済み。公式合計は変更していません。';
+    });
     bind('exclude', async () => {
       await remember(roomHere());
       notice = '取得済みとして候補から除外しました。件数は増やしていません。';
@@ -740,13 +927,26 @@
       prefs.target = [10, 20].includes(Number(el('target').value)) ? Number(el('target').value) : 20;
       await GM.setValue(`${prefix}_prefs`, prefs); el('actual').max = String(prefs.target); render();
     }));
-    el('compact').addEventListener('click', () => { const compact = root.querySelector('.box').classList.toggle('compact'); el('compact').textContent = compact ? '戻す' : '小さく'; });
+    el('compact').addEventListener('click', () => { if (officialView) { showOfficial(false); el('compact').textContent = '小さく'; return; } const compact = root.querySelector('.box').classList.toggle('compact'); el('compact').textContent = compact ? '戻す' : '小さく'; });
     // Keep no media samples across app switches, pauses, or bfcache restores.
-    document.addEventListener('visibilitychange', () => { mediaSamples = new WeakMap(); lastWall = performance.now(); if (document.hidden) void checkpoint().catch(() => {}); else void run(async () => { await pending; state = await readState(period); resetTimer(); }); if (!document.hidden && linkedEnabled && officialAllowed) void readOfficial(); }, { signal: ctx.signal });
-    window.addEventListener('pageshow', () => { mediaSamples = new WeakMap(); lastWall = performance.now(); void run(async () => { await pending; state = await readState(period); resetTimer(); }); if (!document.hidden && linkedEnabled && officialAllowed) void readOfficial(); }, { signal: ctx.signal });
+    async function restoreState() {
+      await pending; state = await readState(period); resetTimer();
+      if (ready && (prefs.autoNext || (CONFIG.kind === 'mx' && !receiptHere()))) showOfficial(true);
+    }
+    document.addEventListener('visibilitychange', () => { if (document.hidden) receipt = null; mediaSamples = new WeakMap(); lastWall = performance.now(); if (document.hidden) void checkpoint().catch(() => {}); else void run(restoreState); if (!document.hidden && linkedEnabled && officialAllowed) void readOfficial(); }, { signal: ctx.signal });
+    window.addEventListener('pagehide', () => { receipt = null; }, { signal: ctx.signal });
+    window.addEventListener('pageshow', event => { if (event.persisted) receipt = null; mediaSamples = new WeakMap(); lastWall = performance.now(); void run(restoreState); if (!document.hidden && linkedEnabled && officialAllowed) void readOfficial(); }, { signal: ctx.signal });
     every(() => {
       if (periodAt(Date.now()).key !== period.key) { void run(async () => {}); return; }
       const now = performance.now(), wall = now - lastWall; lastWall = now;
+      const offline = !isList && stoppedRoom(document);
+      if (offline) receipt = null;
+      const eligible = activeHere() && prefs.autoNext && !paused && !busy && !document.hidden && !boundaryStop;
+      const step = wall > 0 && wall <= 1500 ? Math.min(wall, 1000) : 0;
+      offlineElapsed = eligible && offline ? offlineElapsed + step : 0;
+      if (eligible && ready && !offline) graceElapsed += step;
+      if (!busy && autoAllowed(true)) { void run(() => advance(true, true)); return; }
+      if (canAutoAdvance()) { void run(() => advance(false, true)); return; }
       if (!activeHere() || blockedHere() || paused || busy || ready || document.hidden || stoppedRoom(document)) { mediaSamples = new WeakMap(); render(); return; }
       // Sample every candidate independently: a frozen first video must not hide
       // progressing playback. Add at most one delta per tick, never two streams.
@@ -761,17 +961,18 @@
       }
       elapsed += delta;
       playbackStatus = delta > 0 ? '' : candidates ? '再生の進行を確認中。映像が止まっている時は、配信の再生ボタンか「再生を再確認」を押してください。' : '配信プレイヤーの再生待ちです。配信の再生ボタンを押してください。';
-      if (elapsed >= prefs.seconds * 1000) { elapsed = prefs.seconds * 1000; ready = true; if (linkedEnabled && officialAllowed) void readOfficial(); }
+      if (elapsed >= prefs.seconds * 1000) { elapsed = prefs.seconds * 1000; ready = true; graceElapsed = 0; if (linkedEnabled && officialAllowed) void readOfficial(); if (prefs.autoNext || (CONFIG.kind === 'mx' && !receiptHere())) showOfficial(true); }
       render();
     }, 250);
     // Slow Safari storage must not set UI busy or repeatedly blank media samples.
     every(() => {
       if (busy || storageSyncing) return;
       storageSyncing = true;
-      const sync = async () => { history = await readHistory(); if (!alive()) return; if (activeHere()) await checkpoint(); else { const latest = await readState(period); if (alive() && !busy) state = latest; } };
+      const sync = async () => { history = await readHistory(); reviews = normalizeReviews([...normalizeReviews(await GM.getValue(reviewKey, [])), ...state.done.map(r => ({ ...r, period: period.key }))]); if (!alive()) return; if (activeHere()) await checkpoint(); else { const latest = await readState(period); if (alive() && !busy) state = latest; } };
       void sync().catch(() => { notice = '途中経過を保存できませんでした。中断前に記録を確認してください。'; }).finally(() => { storageSyncing = false; if (alive()) render(); });
     }, 2500);
     renderFavorites(); render();
+    if (ready && (prefs.autoNext || (CONFIG.kind === 'mx' && !receiptHere()))) showOfficial(true);
     if (linkedEnabled && officialAllowed && !document.hidden) void readOfficial();
     if (isList) { void cacheCurrentList().catch(() => {}); every(() => { void cacheCurrentList().catch(() => {}); }, 5000); }
   }

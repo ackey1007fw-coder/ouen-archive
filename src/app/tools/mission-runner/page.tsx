@@ -11,22 +11,22 @@ const mixchInstaller = `${rawBase}/Mixch-Watch-Helper-Mobile.user.js`;
 export const metadata: Metadata = {
   title: "Mission Runner｜iPhone Safari向け配信視聴補助ツール",
   description:
-    "SHOWROOMとミクチャの視聴を、手動の次へ操作で進めやすくするiPhone Safari向け非公式Userscript。",
+    "SHOWROOMとミクチャの視聴を、時間到達で端末へ記録して次の配信へ進むiPhone Safari向け非公式Userscript。",
   openGraph: {
     title: "Mission Runner｜配信視聴を、もっと軽やかに。",
     description:
-      "SHOWROOM / ミクチャ向け。視聴時間の目安、途中再開、取得済み除外などをまとめた非公式の手動補助ツール。",
+      "SHOWROOM / ミクチャ向け。視聴時間の目安、途中再開、取得済み除外などをまとめた非公式の視聴補助ツール。",
     type: "website",
   },
 };
 
 const features = [
   ["⏱️", "再生中だけカウント", "画面を見ていて、映像や音声が進んでいる時間だけを計測。"],
-  ["🧠", "途中から再開", "時間帯ごとの件数と途中経過を端末内に記録します。"],
+  ["➡️", "時間になったら次へ", "30・32・35秒の再生後、公式確認の猶予を経て記録・次へ。非配信は無加算でスキップ。"],
   ["🚫", "取得済みを候補外へ", "一度記録した配信を、同じ巡回で何度も開きにくくします。"],
   ["♡", "フォロー画面へ", "気になった配信者は公式プロフィールを別タブで開けます。"],
   ["📺", "広告は別タブ", "SHOWROOMの広告ページを別タブで開き、戻ると計測を自動再開。"],
-  ["🔗", "公式回数との連動", "SHOWROOMは起動時から公式連動。ミクチャは任意でONにできます。"],
+  ["🔗", "公式回数との連動", "SHOWROOMは起動時から公式連動。ミクチャは成功通知を常時確認。時間到達の記録と公式の取得確認は分けて表示。"],
 ] as const;
 
 export default function MissionRunnerPage() {
@@ -37,7 +37,7 @@ export default function MissionRunnerPage() {
         <div className={styles.mark} aria-hidden="true">🚀</div>
         <h1>Mission Runner</h1>
         <p className={styles.lead}>
-          配信ミッションの「30秒ずつ見る」を、<strong>自分で見ながら1タップずつ</strong>
+          配信ミッションの「30秒ずつ見る」を、<strong>時間到達で記録して次の配信へ</strong>
           進めやすくするiPhone Safari向けの補助ツールです。
         </p>
         <div className={styles.badges} aria-label="対応状況">
@@ -48,11 +48,11 @@ export default function MissionRunnerPage() {
         <div className={styles.actions}>
           <a className={styles.primary} href={srInstaller}>
             🚀 SHOWROOM版をインストール
-            <small>v1.5.0</small>
+            <small>v1.6.1</small>
           </a>
           <a className={styles.secondary} href={mixchInstaller}>
             🎬 ミクチャ版をインストール
-            <small>v0.3.4 β</small>
+            <small>v0.5.1 β</small>
           </a>
         </div>
         <p className={styles.installNote}>
@@ -100,11 +100,12 @@ export default function MissionRunnerPage() {
         <p className={styles.sectionKicker}>HOW TO USE</p>
         <h2 id="use-title">使い方は、見て、待って、次へ。</h2>
         <div className={styles.flow}>
-          <span>配信一覧を開く</span><b>→</b><span>開始</span><b>→</b><span>30〜35秒見る</span><b>→</b><span>次へ</span>
+          <span>配信一覧を開く</span><b>→</b><span>開始</span><b>→</b><span>30〜35秒見る</span><b>→</b><span>自動で記録・次へ</span>
         </div>
         <p className={styles.bodyCopy}>
-          自動で配信を巡回したり、報酬を受け取ったりはしません。
-          「次へ」「フォロー」「広告を見る」などの操作は、必ず自分で行います。
+          開始後は設定秒数の再生に達したら、5秒の公式確認猶予の後で記録・次へ進みます。明確な非配信表示は自動でスキップします。未確認の記録から公式画面へ戻れます。
+          初期設定はON。「自動記録・次へ」でOFFにできます。
+          時間到達の記録は公式の取得確認とは別です。公式のGET・受取、再生開始、フォロー、広告の操作は自分で行います。
         </p>
       </section>
 
@@ -133,12 +134,12 @@ export default function MissionRunnerPage() {
         <div className={styles.releaseGrid}>
           <div>
             <strong>SHOWROOM</strong>
-            <span>v1.5.0</span>
+            <span>v1.6.1</span>
             <p>iPhone Safari向け。公開β。</p>
           </div>
           <div>
             <strong>ミクチャ</strong>
-            <span>v0.3.4 β</span>
+            <span>v0.5.1 β</span>
             <p>公式コイン条件は未検証のためβ扱い。</p>
           </div>
         </div>

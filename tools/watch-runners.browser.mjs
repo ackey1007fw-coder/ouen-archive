@@ -24,6 +24,7 @@ try {
     let firstStart='2026/09/11 07:00:00';
     const context = await browser.newContext({viewport:{width,height:844},isMobile:width<500,hasTouch:width<500,timezoneId:'America/Los_Angeles',locale:'ja-JP'});
     const source = await readFile(join(repo,target.file),'utf8');
+    for (const prefix of ['srmr_progress_v3', 'mxwh_progress_v1']) store.set(`${prefix}_prefs`, { seconds: 32, target: 20, autoNext: false });
     await context.exposeBinding('fixtureGet',(_source,key,def)=>store.has(key)?structuredClone(store.get(key)):def);
     await context.exposeBinding('fixtureSet',(_source,key,value)=>{store.set(key,structuredClone(value));});
     await context.exposeBinding('fixtureDelete',(_source,key)=>{store.delete(key);});
@@ -83,8 +84,13 @@ try {
       });
       await page.evaluate(()=>{window.fixturePaused=false;});await page.clock.runFor(40000);await settle();
       await check('time reached does not award or navigate by itself; next requires a click',async()=>{
-        await checkText('time',/目安到達/);await checkText('total',/10 \/ 20/);assert.equal(page.url(),target.live(target.one));
-        await part('next').click();await page.waitForURL(target.live(target.two));await panel().waitFor();await checkText('total',/11 \/ 20.*あと9件/);
+        if(target.kind==='mx') {
+          await part('compact').click();await checkText('time',/取得未確認/);assert.equal(await part('next').isDisabled(),true);
+          await page.evaluate(()=>{const n=document.createElement('div');n.className='alert alert-success';n.setAttribute('role','alert');n.textContent='視聴ボーナスGET！ 11/20';document.body.appendChild(n);});await settle();
+          await checkText('time',/取得確認済み/);
+        } else { await checkText('time',/目安到達/);await checkText('total',/10 \/ 20/); }
+        assert.equal(page.url(),target.live(target.one));
+        await part('next').click();await page.waitForURL(target.live(target.two));await panel().waitFor();await checkText('total',target.kind==='mx'?/11 \/ 20.*あと9回/:/11 \/ 20.*あと9件/);
       });
       await check('returning to the list and restarting does not re-enter the recorded first broadcast',async()=>{
         await part('back').click();await page.waitForURL(target.home);await panel().waitFor();

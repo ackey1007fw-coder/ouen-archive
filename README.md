@@ -19,9 +19,9 @@
 
 ## Public tools
 
-- [Mission Runner](./src/app/tools/mission-runner/page.tsx) — iPhone Safari + Userscripts向けの非公式・手動視聴補助ツール
-  - SHOWROOM v1.5.0
-  - ミクチャ v0.3.4 β
+- [Mission Runner](./src/app/tools/mission-runner/page.tsx) — iPhone Safari + Userscripts向けの非公式の視聴補助ツール（時間到達で自動記録・次へ）
+  - SHOWROOM v1.6.1
+  - ミクチャ v0.5.1 β
   - 公開ページ: `/tools/mission-runner`
   - 仕様・制限: [`docs/WATCH-RUNNERS.md`](./docs/WATCH-RUNNERS.md)
 ## AI / agent向け project memory
