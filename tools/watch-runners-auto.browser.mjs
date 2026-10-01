@@ -21,15 +21,16 @@ const targets = [
 async function fixture(t, width, options = {}) {
   const store = new Map();
   const stateKey = `${t.prefix}_${t.key}`;
-  store.set(stateKey, { period: t.key, done: [], adjustment: options.adjustment || 0,
+  store.set(stateKey, { period: t.key, done: options.seed ? [{slug:t.slugs[2],at:now-1000,source:'timer'}] : [], adjustment: options.adjustment || 0,
     queue: t.slugs.map(slug => ({ slug, roomId: options.official ? '123456' : '' })), index: 0, active: true, run: 'fixture',
     checkpoint: options.complete ? { slug: t.slugs[0], elapsed: 32000, hold: false } : null, listUrl: t.home });
   const ctx = await browser.newContext({ viewport: { width, height: 844 }, isMobile: width < 500, hasTouch: width < 500, locale: 'ja-JP' });
-  let fail = false, failAll = false, delay = false, blockedWrite = null, blockAll = false;
+  let fail = false, failAll = false, failKey = '', delay = false, blockedWrite = null, blockAll = false;
   const errors = [], requests = [], checks = [];
   await ctx.exposeBinding('get', async (_s, k, d) => { if (delay) await new Promise(r => setTimeout(r, 450)); return store.has(k) ? structuredClone(store.get(k)) : d; });
   await ctx.exposeBinding('set', async (_s, k, v) => {
     if (delay) await new Promise(r => setTimeout(r, 450));
+    if (k === failKey) throw new Error('Fixture selected-key denial');
     if (k === stateKey && (v.done.length && fail || failAll)) throw new Error('Fixture storage denial');
     if (k === stateKey && (v.done.length || blockAll) && blockedWrite) await blockedWrite;
     store.set(k, structuredClone(v));
@@ -52,7 +53,7 @@ async function fixture(t, width, options = {}) {
     const u = new URL(r.url());
     if (options.official && u.pathname === '/api/mission') {
       assert.equal(r.url(), 'https://www.showroom-live.com/api/mission?room_id=123456');
-      await route.fulfill({ json: { genre_list: [{ genre: 'daily', current_period: 'day', day: { continuous_mission: [{ mission_id: 101, title: '配信を30秒視聴しよう', current_value: 30, target_value: 30, current_level: 20, max_level: 20, remain_reward: 0, is_active: 1 }], single_mission: [] } }] } });
+      await route.fulfill({ json: { genre_list: [{ genre: 'daily', current_period: 'day', day: { continuous_mission: [{ mission_id: 101, title: '配信を30秒視聴しよう', current_value: 30, target_value: 30, current_level: options.officialRemaining ? 9 : 20, max_level: 20, remain_reward: 0, is_active: 1 }], single_mission: [] } }] } });
       return;
     }
     const list = u.pathname === '/' || u.pathname === '/onlive';
@@ -67,7 +68,7 @@ async function fixture(t, width, options = {}) {
   const hidden = async value => { await page.evaluate(v => { window.fixtureHidden = v; document.dispatchEvent(new Event('visibilitychange')); }, value); await tick(); };
   await page.goto(t.live(t.slugs[0])); await panel().waitFor();
   return { ctx, page, panel, part, tick, check, hidden, store, stateKey, errors, requests, checks,
-    setFail: v => { fail = v; }, failAny: () => { failAll = true; }, setDelay: v => { delay = v; }, block: (all = false) => { blockAll = all; let release; blockedWrite = new Promise(r => { release = r; }); return () => { blockedWrite = null; release(); }; } };
+    setFail: v => { fail = v; }, failKey: k => { failKey = k; }, failAny: () => { failAll = true; }, setDelay: v => { delay = v; }, block: (all = false) => { blockAll = all; let release; blockedWrite = new Promise(r => { release = r; }); return () => { blockedWrite = null; release(); }; } };
 }
 async function scenario(t, width, name, options, fn) {
   if (process.env.RUNNER_AUTO_CASE && process.env.RUNNER_AUTO_CASE !== name) return;
@@ -161,11 +162,33 @@ try {
       await f.page.clock.setSystemTime(new Date(t.kind==='sr'?'2026-10-01T15:00:00+09:00':'2026-10-02T00:00:00+09:00'));await f.tick(3000);
       await f.check('review proof survives period rollover while local count starts a fresh period',async()=>{assert.equal(f.store.get(`${t.prefix}_watch_reviews`)[0].reward,'manual');assert.equal(f.page.url(),t.live(t.slugs[0]));});
     });
+    await scenario(t,390,'upgrade-review-seed',{seed:true,complete:true},async f=>{
+      await f.check('upgrade timer completion is persisted before any new record',async()=>{assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length,1);assert.equal(f.store.get(`${t.prefix}_watch_reviews`)[0].slug,t.slugs[2]);});
+      await f.tick(6000);await f.page.waitForURL(t.live(t.slugs[1]));await f.panel().waitFor();
+      await f.check('first new save preserves seeded recovery links',async()=>{assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length,2);});
+      f.store.set(f.stateKey,{...f.store.get(f.stateKey),done:[],active:false});await f.page.reload();await f.panel().waitFor();
+      await f.check('seeded links survive a period-state reset and reload',async()=>{assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length,2);assert.equal(await f.part('reviewLinks').locator('a').count(),2);});
+    });
+    await scenario(t,390,'local-limit-with-official-remaining',{complete:true,adjustment:20,official:t.kind==='sr',officialRemaining:true},async f=>{
+      if(t.kind==='mx') await f.page.evaluate(()=>{const n=document.createElement('div');n.className='alert alert-success';n.setAttribute('role','alert');n.textContent='視聴ボーナスGET！ 9/20';document.body.append(n);});
+      await f.tick(8000);
+      await f.check('local cap stops an extra record even while official remaining is positive',async()=>{assert.equal(f.store.get(f.stateKey).done.length,0);assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length,0);assert.equal(f.page.url(),t.live(t.slugs[0]));});
+      await f.page.goto(t.home);await f.panel().waitFor();
+      await f.check('list cannot start an automatic run above the local cap',async()=>{assert.equal(await f.part('start').isDisabled(),true);});
+    });
+    if(t.kind==='sr') await scenario(t,390,'history-save-failure',{complete:true},async f=>{
+      f.failKey(`${t.prefix}_broadcast_history`);await f.tick(8000);
+      await f.check('history-only failure never commits count or queue advance',async()=>{assert.equal(f.store.get(f.stateKey).done.length,0);assert.equal(f.store.get(f.stateKey).index,0);assert.equal((f.store.get(`${t.prefix}_broadcast_history`)||[]).length,0);assert.equal(f.page.url(),t.live(t.slugs[0]));assert.match(await f.part('status').innerText(),/保存できません/);});
+      f.failKey('');await f.part('retry').click();await f.tick(6000);await f.page.waitForURL(t.live(t.slugs[1]));
+      await f.check('retry commits count and durable exclusion together',async()=>{assert.equal(f.store.get(f.stateKey).done.length,1);assert.equal(f.store.get(`${t.prefix}_broadcast_history`).length,1);});
+    });
     await scenario(t,390,'cancel-offline-save',{},async f=>{
       const release = f.block(true);
       await f.page.evaluate(kind=>{const n=document.createElement('div');n.id='stop';n.innerHTML=kind==='sr'?'<div class="room-block"><p class="ta-c">配信停止中</p></div>':'<div role="alert" class="alert alert-warning">現在配信していません</div>';document.body.append(n);},t.kind);
       await f.tick(3000); await f.part('autoToggle').click(); release(); await f.tick(4000);
-      await f.check('OFF during offline skip save cancels navigation',async()=>{assert.equal(f.page.url(),t.live(t.slugs[0]));assert.equal(f.store.get(f.stateKey).done.length,0);assert.equal(f.store.get(`${t.prefix}_prefs`).autoNext,false);});
+      await f.check('OFF during offline skip save cancels navigation',async()=>{assert.equal(f.page.url(),t.live(t.slugs[0]));assert.equal(f.store.get(f.stateKey).done.length,0);assert.equal(f.store.get(`${t.prefix}_prefs`).autoNext,false);assert.equal(f.store.get(f.stateKey).index,0);assert.equal(f.store.get(f.stateKey).active,true);});
+      await f.part('autoToggle').click();await f.tick(3000);await f.page.waitForURL(t.live(t.slugs[1]));
+      await f.check('ON resumes a cancelled offline skip from the original candidate',async()=>{assert.equal(f.store.get(f.stateKey).index,1);assert.equal(f.store.get(f.stateKey).done.length,0);});
     });
     await scenario(t,390,'offline-save-failure',{},async f=>{
       f.setFail(true);

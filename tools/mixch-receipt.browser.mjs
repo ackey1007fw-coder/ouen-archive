@@ -78,14 +78,24 @@ try {
       await page.evaluate(() => { document.getElementById('fresh').hidden = false; }); await tick();
       await check('a new visible official success confirms this room and the official total', async () => { assert.equal(await part('time').innerText(), '取得確認済み'); assert.match(await part('total').innerText(), /公式連動 9 \/ 20/); assert.equal(await part('next').isDisabled(), false); });
       await page.reload(); await panel().waitFor();
-      await check('receipt survives reload only for the exact confirmed room', async () => { assert.equal(await part('time').innerText(), '取得確認済み'); await part('next').click(); await page.waitForURL('https://mixch.tv/u/100002/live'); await panel().waitFor(); assert.equal(store.get(`mxwh_progress_v1_${key}`).done.length, 1); assert.doesNotMatch(await part('time').innerText(), /取得確認済み/); assert.equal(await part('next').isDisabled(), true); });
+      await check('reload invalidates proof even at the same broadcaster URL', async () => { assert.doesNotMatch(await part('time').innerText(), /取得確認済み/); assert.equal(await part('next').isDisabled(),true); });
+      await part('compact').click();await alert('視聴ボーナスGET！ 9/20');
+      await page.evaluate(()=>{window.dispatchEvent(new Event('pagehide'));window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));});await tick();
+      await check('bfcache return never reuses previous proof',async()=>{assert.doesNotMatch(await part('time').innerText(),/取得確認済み/);assert.equal(await part('next').isDisabled(),true);});
+      if(await part('compact').innerText()==='取得未確認・戻す')await part('compact').click();
+      await alert('視聴ボーナスGET！ 9/20');
+      await page.evaluate(()=>{const n=document.createElement('div');n.id='stop';n.setAttribute('role','alert');n.className='alert alert-warning';n.textContent='ライブが終了しています';document.body.append(n);});await tick();
+      await page.evaluate(()=>document.getElementById('stop').remove());await tick();
+      await check('offline and restart at the same URL invalidate proof',async()=>{assert.doesNotMatch(await part('time').innerText(),/取得確認済み/);assert.equal(await part('next').isDisabled(),true);});
+      await alert('視聴ボーナスGET！ 9/20');
+      await check('only a new GET notice can confirm the current document again',async()=>{assert.equal(await part('time').innerText(),'取得確認済み');await part('next').click();await page.waitForURL('https://mixch.tv/u/100002/live');await panel().waitFor();assert.equal(store.get(`mxwh_progress_v1_${key}`).done.length,1);assert.doesNotMatch(await part('time').innerText(),/取得確認済み/);assert.equal(await part('next').isDisabled(),true);});
       await check('unconfirmed room can be skipped without counting or waiting forever', async () => { await part('skip').click(); await page.waitForURL('https://mixch.tv/'); await panel().waitFor(); assert.equal(store.get(`mxwh_progress_v1_${key}`).done.length, 1); });
       await page.goto('https://mixch.tv/u/100002/live'); await panel().waitFor();
       await check('manual confirmation can be cancelled and never changes the official total', async () => {
         page.once('dialog', d => d.dismiss()); await part('confirmReceipt').click(); assert.doesNotMatch(await part('time').innerText(), /本人確認済み/);
         page.once('dialog', d => d.accept()); await part('confirmReceipt').click(); assert.equal(await part('time').innerText(), '本人確認済み'); assert.match(await part('total').innerText(), /公式連動 9 \/ 20/);
       });
-      await check('expiration never fabricates confirmation or a zero official total', async () => { await page.clock.setSystemTime(new Date(now + 16 * 60000)); await tick(); assert.doesNotMatch(await part('time').innerText(), /確認済み/); assert.match(await part('linkedStatus').innerText(), /確認待ち/); });
+      await check('expiration never fabricates confirmation or a zero official total', async () => { await page.clock.setSystemTime(new Date(await page.evaluate(() => Date.now()) + 16 * 60000)); await tick(); assert.doesNotMatch(await part('time').innerText(), /確認済み/); assert.match(await part('linkedStatus').innerText(), /確認待ち/); });
       // A last official receipt must remain recordable even at the upper limit.
       await alert('視聴ボーナスGET！ 20/20');
       await check('last official receipt is recorded without starting another room', async () => { assert.equal(await part('next').isDisabled(), false); await part('next').click(); await tick(); assert.equal(store.get(`mxwh_progress_v1_${key}`).done.length, 2); assert.equal(store.get(`mxwh_progress_v1_${key}`).active, false); await page.goto('https://mixch.tv/'); await panel().waitFor(); assert.equal(await part('start').isDisabled(), true); });

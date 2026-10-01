@@ -399,6 +399,9 @@
     let playbackStatus = '', storageSyncing = false, graceElapsed = 0, offlineElapsed = 0;
     const reviewKey = `${prefix}_watch_reviews`;
     let reviews = normalizeReviews([...(normalizeReviews(await GM.getValue(reviewKey, []))), ...state.done.map(r => ({ ...r, period: period.key }))]);
+    // Upgrade seeds must survive subsequent saves and period-state resets.
+    await GM.setValue(reviewKey, reviews);
+    if (!alive()) return;
     const titleFromPage = () => cleanName(document.querySelector('h1')?.textContent || document.title || current?.slug);
     const activeHere = () => !isList && state.active && state.queue[state.index]?.slug === current.slug && !ended;
     const roomHere = () => state.queue[state.index]?.slug === current?.slug ? state.queue[state.index] : { slug: current?.slug, startedAt: null };
@@ -546,14 +549,15 @@
     const linkKey = `${prefix}_official_link_session`;
     const receiptKey = `${prefix}_receipt_session`;
     let linkedEnabled = true, linkedSnapshot = null, selectedMission = '', receipt = null;
-    try { const saved = JSON.parse(sessionStorage.getItem(linkKey) || 'null'); selectedMission = String(saved?.selected || '').slice(0, 20); linkedSnapshot = CONFIG.kind === 'sr' ? null : freshLinkedSnapshot(saved?.snapshot, Date.now()); receipt = JSON.parse(sessionStorage.getItem(receiptKey) || 'null'); } catch { /* Linking stays ON in memory if storage is denied. */ }
+    try { const saved = JSON.parse(sessionStorage.getItem(linkKey) || 'null'); selectedMission = String(saved?.selected || '').slice(0, 20); linkedSnapshot = CONFIG.kind === 'sr' ? null : freshLinkedSnapshot(saved?.snapshot, Date.now()); sessionStorage.removeItem(receiptKey); } catch { /* Linking stays ON in memory if storage is denied. */ }
     function receiptHere() {
-      return CONFIG.kind === 'mx' && current?.viewing && receipt?.slug === current.slug && receipt.period === period.key && ['official', 'manual'].includes(receipt.source) && Number.isSafeInteger(receipt.at) && receipt.at <= Date.now() && Date.now() - receipt.at <= 15 * 60000 ? receipt : null;
+      return CONFIG.kind === 'mx' && current?.viewing && !stoppedRoom(document) && receipt?.slug === current.slug && receipt.period === period.key && ['official', 'manual'].includes(receipt.source) && Number.isSafeInteger(receipt.at) && receipt.at <= Date.now() && Date.now() - receipt.at <= 15 * 60000 ? receipt : null;
     }
     function saveReceipt(source) {
-      if (!current?.viewing || document.hidden) return;
+      if (!current?.viewing || document.hidden || stoppedRoom(document)) return;
       receipt = { slug: current.slug, period: period.key, at: Date.now(), source };
-      try { sessionStorage.setItem(receiptKey, JSON.stringify(receipt)); } catch { /* In-memory confirmation only. */ }
+      // Broadcast/account identity is unavailable: proof belongs only to this
+      // visible document, never a reload, return visit or bfcache restoration.
 
     }
     let officialView = false;
@@ -567,7 +571,10 @@
     }
     function saveLinked() { try { sessionStorage.setItem(linkKey, JSON.stringify({ enabled: linkedEnabled, selected: selectedMission, snapshot: linkedSnapshot })); } catch { /* In-memory mode only. */ } }
     const linkedCount = () => linkedEnabled ? freshLinkedSnapshot(linkedSnapshot, Date.now()) : null;
-    function routingRemaining(s) { const official = linkedCount(); return official ? official.limit - official.achieved : Math.max(0, prefs.target - countDone(s, prefs.target)); }
+    function routingRemaining(s) {
+      const official = linkedCount(), local = Math.max(0, prefs.target - countDone(s, prefs.target));
+      return official ? (prefs.autoNext ? Math.min(local, official.limit - official.achieved) : official.limit - official.achieved) : local;
+    }
     function renderLinked() {
       el('linkToggle').textContent = CONFIG.kind === 'sr' ? '公式の回数を再確認' : '公式通知を再確認';
       const c = linkedCount();
@@ -741,7 +748,7 @@
       notice = boundaryStop ? '時間帯が切り替わりました。同じ配信の継続では再達成できません。一覧に戻り、別の配信へ進んでください。' : '時間帯が切り替わりました。新しい枠の記録に切り替えています。';
       render(); return true;
     }
-    function transact(fn, requireActive = false) {
+    function transact(fn, requireActive = false, beforeCommit = null) {
       const p = period, runId = state.run, expectedIndex = state.index;
       const work = pending.then(async () => {
         if (periodAt(Date.now()).key !== p.key) { await rollover(); return false; }
@@ -753,7 +760,10 @@
           state = latest; ended = true; notice = '別の画面で進んだため、この画面の計測を停止しました。'; render(); return false;
         }
         history = await readHistory();
-        if (await fn(latest) === false || !alive()) return false; await GM.setValue(storageKey(p), latest);
+        if (await fn(latest) === false || !alive()) return false;
+        const undo = beforeCommit ? await beforeCommit() : null;
+        try { await GM.setValue(storageKey(p), latest); }
+        catch (error) { if (undo) await undo(); throw error; }
         if (period.key === p.key) state = latest;
         return true;
       });
@@ -773,10 +783,22 @@
       history = normalizeHistory([...latest, { slug: room.slug, startedAt: validStart(room.startedAt), at }]);
       await GM.setValue(historyKey, history);
     }
+    async function prepareHistory(room) {
+      if (CONFIG.kind !== 'sr' || !room) return null;
+      const previous = (await readHistory()).find(r => r.slug === room.slug), at = Date.now();
+      await remember(room, at);
+      // Undo only our own high-water mark if the period-state write fails.
+      return async () => {
+        const latest = await readHistory();
+        history = normalizeHistory([...latest.filter(r => r.slug !== room.slug || r.at !== at), ...(previous ? [previous] : [])]);
+        await GM.setValue(historyKey, history);
+      };
+    }
     function bind(id, fn) { el(id).addEventListener('click', () => void run(fn)); }
     const checkpoint = () => activeHere() ? transact(s => { s.checkpoint = { slug: current.slug, startedAt: validStart(roomHere().startedAt), elapsed, hold: false }; }, true) : Promise.resolve(true);
     bind('start', async () => {
       await pending; history = await readHistory(); state = await readState(period);
+      if (routingRemaining(state) <= 0) { notice = '目標に到達しています。公式の結果・受取を確認してください。'; return; }
       const rooms = available();
       if (!rooms.length) { const fallback = officialOnliveFallback(location.href); if (fallback) navigate(fallback); return; }
       if (state.checkpoint) {
@@ -821,8 +843,10 @@
       }
       if (!skip && !blockedHere() && (CONFIG.kind === 'mx' ? !(receiptHere() || (automatic && ready)) : !ready)) return;
       let destination = '', recordedRoom = null;
+      const priorPosition = { run: state.run, index: state.index, active: state.active, checkpoint: state.checkpoint };
       const ok = await transact(async s => {
         if (automatic && !autoAllowed(skip)) return false;
+        if (automatic && countDone(s, prefs.target) >= prefs.target) { s.active = false; return; }
         const room = s.queue[s.index], at = Date.now();
         if (!skip && !isRecorded(room, [...history, ...s.done])) {
           if (!addDone(s, room, at, period, CONFIG.kind === 'mx' && receiptHere() ? receiptHere().source : 'timer')) throw new Error('Period changed');
@@ -838,12 +862,22 @@
           }
         }
         if (!destination) s.active = false;
-      }, true);
+      }, true, () => prepareHistory(recordedRoom));
       if (!ok || periodAt(Date.now()).key !== period.key) return;
-      if (recordedRoom) await remember(recordedRoom);
       await pending;
       if (periodAt(Date.now()).key !== period.key) { await rollover(); return; }
-      if (automatic && (!prefs.autoNext || paused || document.hidden || !alive() || (skip ? !stoppedRoom(document) : stoppedRoom(document)))) { ended = true; notice = '時間到達を記録しました。自動移動は停止しました。'; return; }
+      if (automatic && (!prefs.autoNext || paused || document.hidden || !alive() || (skip ? !stoppedRoom(document) : stoppedRoom(document)))) {
+        if (skip && alive()) {
+          const committedIndex = state.index;
+          const restored = await transact(s => {
+            if (s.run !== priorPosition.run || s.index !== committedIndex) return false;
+            Object.assign(s, priorPosition);
+          });
+          ended = !restored; offlineElapsed = 0;
+          notice = 'スキップを取り消しました。自動ONでこの候補から再開します。';
+        } else { ended = true; notice = '時間到達を記録しました。自動移動は停止しました。'; }
+        return;
+      }
       if (destination) navigate(destination);
       else if (advanceRemaining(state, automatic) > 0) navigate(backUrl);
       else { ended = true; notice = '目標まで記録しました。公式の結果・受取も確認してください。'; }
@@ -899,12 +933,14 @@
       await pending; state = await readState(period); resetTimer();
       if (ready && (prefs.autoNext || (CONFIG.kind === 'mx' && !receiptHere()))) showOfficial(true);
     }
-    document.addEventListener('visibilitychange', () => { mediaSamples = new WeakMap(); lastWall = performance.now(); if (document.hidden) void checkpoint().catch(() => {}); else void run(restoreState); if (!document.hidden && linkedEnabled && officialAllowed) void readOfficial(); }, { signal: ctx.signal });
-    window.addEventListener('pageshow', () => { mediaSamples = new WeakMap(); lastWall = performance.now(); void run(restoreState); if (!document.hidden && linkedEnabled && officialAllowed) void readOfficial(); }, { signal: ctx.signal });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) receipt = null; mediaSamples = new WeakMap(); lastWall = performance.now(); if (document.hidden) void checkpoint().catch(() => {}); else void run(restoreState); if (!document.hidden && linkedEnabled && officialAllowed) void readOfficial(); }, { signal: ctx.signal });
+    window.addEventListener('pagehide', () => { receipt = null; }, { signal: ctx.signal });
+    window.addEventListener('pageshow', event => { if (event.persisted) receipt = null; mediaSamples = new WeakMap(); lastWall = performance.now(); void run(restoreState); if (!document.hidden && linkedEnabled && officialAllowed) void readOfficial(); }, { signal: ctx.signal });
     every(() => {
       if (periodAt(Date.now()).key !== period.key) { void run(async () => {}); return; }
       const now = performance.now(), wall = now - lastWall; lastWall = now;
       const offline = !isList && stoppedRoom(document);
+      if (offline) receipt = null;
       const eligible = activeHere() && prefs.autoNext && !paused && !busy && !document.hidden && !boundaryStop;
       const step = wall > 0 && wall <= 1500 ? Math.min(wall, 1000) : 0;
       offlineElapsed = eligible && offline ? offlineElapsed + step : 0;
