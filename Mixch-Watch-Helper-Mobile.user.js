@@ -667,6 +667,13 @@
       const next = normalizeReviews([...(Array.isArray(raw) ? raw : []), record]);
       await GM.setValue(reviewKey, next); reviews = next;
     }
+    async function saveCommittedReviews() {
+      const committed = state.done.map(record => ({ ...record, period: period.key }));
+      if (!committed.length) return;
+      const raw = await GM.getValue(reviewKey, []);
+      const next = normalizeReviews([...normalizeReviews(raw), ...committed]);
+      await GM.setValue(reviewKey, next); reviews = next;
+    }
     function render() {
       const count = countDone(state, prefs.target), left = routingRemaining(state);
       renderLinked(); renderReviews();
@@ -739,6 +746,8 @@
     async function rollover() {
       const p = periodAt(Date.now());
       if (p.key === period.key) return false;
+      // Do not forget committed recovery links when a ledger write failed.
+      await saveCommittedReviews();
       clearLinked(); el('officialAuto').checked = CONFIG.kind === 'sr'; officialSnapshot = null; el('officialResult').textContent = '時間帯が切り替わりました。公式データは再読取が必要です。';
       period = p; history = await readHistory(); state = await readState(p); if (!state.active) state.listUrl = backUrl; await GM.setValue(storageKey(p), state);
       ended = true; elapsed = 0; ready = false; mediaSamples = new WeakMap();
@@ -922,6 +931,7 @@
     bind('reset', async () => {
       const message = CONFIG.kind === 'sr' ? 'この時間帯の件数だけをリセットしますか？取得済み配信の除外履歴とお気に入りは残します。公式側は変更しません。' : '今日の端末の視聴記録をリセットしますか？お気に入りと公式側は変更しません。';
       if (!window.confirm(message)) return;
+      await pending; await saveCommittedReviews();
       await transact(s => Object.assign(s, normalizeState(null, period)));
       ended = true; resetTimer(); notice = CONFIG.kind === 'sr' ? '件数をリセットしました。取得済み配信の除外履歴は残っています。' : '今日の端末の視聴記録をリセットしました。';
     });

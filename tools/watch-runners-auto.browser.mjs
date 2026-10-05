@@ -222,6 +222,21 @@ try {
       f.failKey(''); await f.page.reload(); await f.panel().waitFor(); await f.tick(3000);
       await f.check('startup repairs the review from committed completion after storage recovers', async () => { assert.equal(f.store.get(f.stateKey).done.length, 1); assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length, 1); assert.equal(await f.part('reviewLinks').locator('a').count(), 1); });
     });
+    await scenario(t, 390, 'review-save-failure-reset', { complete: true }, async f => {
+      f.failKey(`${t.prefix}_watch_reviews`); await f.tick(6000);
+      await f.part('reset').evaluate(button => { button.closest('details').open = true; });
+      f.page.once('dialog', d => d.accept()); await f.part('reset').click(); await f.tick(1000);
+      await f.check('reset cannot discard a completion while its review cannot be saved', async () => { assert.equal(f.store.get(f.stateKey).done.length, 1); assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length, 0); });
+      f.failKey(''); f.page.once('dialog', d => d.accept()); await f.part('reset').click(); await f.tick(1000);
+      await f.check('reset saves the recovery link before clearing only the count', async () => { assert.equal(f.store.get(f.stateKey).done.length, 0); assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length, 1); assert.equal(await f.part('reviewLinks').locator('a').count(), 1); });
+    });
+    await scenario(t, 390, 'review-save-failure-rollover', { complete: true }, async f => {
+      f.failKey(`${t.prefix}_watch_reviews`); await f.tick(6000);
+      await f.page.clock.setSystemTime(new Date(t.kind === 'sr' ? '2026-10-01T15:00:00+09:00' : '2026-10-02T00:00:00+09:00')); await f.tick(2000);
+      await f.check('rollover stops while the committed old-period review is unsaved', async () => { assert.equal([...f.store].filter(([k, v]) => k.startsWith(t.prefix + '_') && v?.period && k !== f.stateKey).length, 0); assert.equal(f.store.get(f.stateKey).done.length, 1); });
+      f.failKey(''); await f.tick(2000); await f.page.reload(); await f.panel().waitFor(); await f.tick(1000);
+      await f.check('rollover preserves the old-period recovery link after storage recovers', async () => { assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length, 1); assert.equal(await f.part('reviewLinks').locator('a').count(), 1); assert.equal([...f.store].filter(([k, v]) => k.startsWith(t.prefix + '_') && v?.period && k !== f.stateKey).every(([, v]) => v.done.length === 0), true); });
+    });
     await scenario(t, 390, 'restore-goal', { complete: true, adjustment: 19 }, async f => {
       if (t.kind === 'mx') await f.page.evaluate(() => { const n = document.createElement('div'); n.className = 'alert alert-success'; n.setAttribute('role', 'alert'); n.textContent = '視聴ボーナスGET！ 5/20'; document.body.append(n); });
       await f.tick(6000);
