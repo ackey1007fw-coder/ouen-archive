@@ -25,7 +25,7 @@ async function fixture(t, width, options = {}) {
     queue: t.slugs.map(slug => ({ slug, roomId: options.official ? '123456' : '' })), index: 0, active: true, run: 'fixture',
     checkpoint: options.complete ? { slug: t.slugs[0], elapsed: 32000, hold: false } : null, listUrl: t.home });
   const ctx = await browser.newContext({ viewport: { width, height: 844 }, isMobile: width < 500, hasTouch: width < 500, locale: 'ja-JP' });
-  let fail = false, failAll = false, failKey = '', delay = false, blockedWrite = null, blockAll = false;
+  let fail = false, failAll = false, failKey = '', delay = false, blockedWrite = null, blockAll = false, blockedReview = null;
   const errors = [], requests = [], checks = [];
   await ctx.exposeBinding('get', async (_s, k, d) => { if (delay) await new Promise(r => setTimeout(r, 450)); return store.has(k) ? structuredClone(store.get(k)) : d; });
   await ctx.exposeBinding('set', async (_s, k, v) => {
@@ -33,6 +33,7 @@ async function fixture(t, width, options = {}) {
     if (k === failKey) throw new Error('Fixture selected-key denial');
     if (k === stateKey && (v.done.length && fail || failAll)) throw new Error('Fixture storage denial');
     if (k === stateKey && (v.done.length || blockAll) && blockedWrite) await blockedWrite;
+    if (k === `${t.prefix}_watch_reviews` && blockedReview) await blockedReview;
     store.set(k, structuredClone(v));
   });
   await ctx.exposeBinding('del', (_s, k) => store.delete(k));
@@ -46,7 +47,7 @@ async function fixture(t, width, options = {}) {
       }
       new Function(code)();
     });
-  }, { code: await readFile(join(repo, t.file), 'utf8') });
+  }, { code: await readFile(join(process.env.RUNNER_SCRIPT_DIR || repo, t.file), 'utf8') });
   await ctx.route('**/*', async route => {
     const r = route.request(); requests.push({ method: r.method(), url: r.url() });
     assert.equal(r.method(), 'GET');
@@ -68,6 +69,7 @@ async function fixture(t, width, options = {}) {
   const hidden = async value => { await page.evaluate(v => { window.fixtureHidden = v; document.dispatchEvent(new Event('visibilitychange')); }, value); await tick(); };
   await page.goto(t.live(t.slugs[0])); await panel().waitFor();
   return { ctx, page, panel, part, tick, check, hidden, store, stateKey, errors, requests, checks,
+    blockReview: () => { let release; blockedReview = new Promise(r => { release = r; }); return () => { blockedReview = null; release(); }; },
     setFail: v => { fail = v; }, failKey: k => { failKey = k; }, failAny: () => { failAll = true; }, setDelay: v => { delay = v; }, block: (all = false) => { blockAll = all; let release; blockedWrite = new Promise(r => { release = r; }); return () => { blockedWrite = null; release(); }; } };
 }
 async function scenario(t, width, name, options, fn) {
@@ -178,7 +180,7 @@ try {
     });
     if(t.kind==='sr') await scenario(t,390,'history-save-failure',{complete:true},async f=>{
       f.failKey(`${t.prefix}_broadcast_history`);await f.tick(8000);
-      await f.check('history-only failure never commits count or queue advance',async()=>{assert.equal(f.store.get(f.stateKey).done.length,0);assert.equal(f.store.get(f.stateKey).index,0);assert.equal((f.store.get(`${t.prefix}_broadcast_history`)||[]).length,0);assert.equal(f.page.url(),t.live(t.slugs[0]));assert.match(await f.part('status').innerText(),/保存できません/);});
+      await f.check('history-only failure never commits count, queue advance, or review',async()=>{assert.equal(f.store.get(f.stateKey).done.length,0);assert.equal(f.store.get(f.stateKey).index,0);assert.equal((f.store.get(`${t.prefix}_broadcast_history`)||[]).length,0);assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length,0);assert.equal(f.page.url(),t.live(t.slugs[0]));assert.match(await f.part('status').innerText(),/保存できません/);});
       f.failKey('');await f.part('retry').click();await f.tick(6000);await f.page.waitForURL(t.live(t.slugs[1]));
       await f.check('retry commits count and durable exclusion together',async()=>{assert.equal(f.store.get(f.stateKey).done.length,1);assert.equal(f.store.get(`${t.prefix}_broadcast_history`).length,1);});
     });
@@ -200,9 +202,25 @@ try {
     });
     await scenario(t, 390, 'save-failure', {}, async f => {
       f.setFail(true); await f.page.evaluate(() => { window.playing = true; }); await f.tick(40000); await f.tick(10000);
-      await f.check('failed final save pauses with no navigation, count, or exclusion', async () => { assert.equal(f.page.url(), t.live(t.slugs[0])); assert.equal(f.store.get(f.stateKey).done.length, 0); assert.match(await f.part('status').innerText(), /保存できません/); assert.equal((f.store.get(`${t.prefix}_broadcast_history`) || []).length, 0); });
+      await f.check('failed final save pauses with no navigation, count, exclusion, or orphan review', async () => { assert.equal(f.page.url(), t.live(t.slugs[0])); assert.equal(f.store.get(f.stateKey).done.length, 0); assert.match(await f.part('status').innerText(), /保存できません/); assert.equal((f.store.get(`${t.prefix}_broadcast_history`) || []).length, 0); assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length, 0); assert.equal(await f.part('reviewLinks').locator('a').count(), 0); });
+      await f.page.reload(); await f.panel().waitFor(); await f.tick(3000);
+      await f.check('failed completion stays absent from reviews after reload and sync', async () => { assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length, 0); assert.equal(await f.part('reviewLinks').locator('a').count(), 0); });
       f.setFail(false); await f.part('retry').click(); await f.tick(6000); await f.page.waitForURL(t.live(t.slugs[1]));
       await f.check('explicit retry saves once and continues', async () => { assert.equal(f.store.get(f.stateKey).done.length, 1); });
+    });
+    await scenario(t, 390, 'cancel-review-save', { complete: true }, async f => {
+      const release = f.blockReview(); await f.tick(6000);
+      await f.check('completion is durable before a delayed review write starts', async () => { assert.equal(f.store.get(f.stateKey).done.length, 1); assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length, 0); });
+      await f.part('autoToggle').click(); release(); await f.tick(4000);
+      await f.check('OFF during review persistence retains a real completion and cancels navigation', async () => { assert.equal(f.store.get(f.stateKey).done.length, 1); assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length, 1); assert.equal(f.page.url(), t.live(t.slugs[0])); assert.equal(f.store.get(`${t.prefix}_prefs`).autoNext, false); });
+      await f.page.reload(); await f.panel().waitFor(); await f.tick(3000);
+      await f.check('reload keeps exactly one committed review without duplicate completion', async () => { assert.equal(f.store.get(f.stateKey).done.length, 1); assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length, 1); assert.equal(await f.part('reviewLinks').locator('a').count(), 1); });
+    });
+    await scenario(t, 390, 'review-save-failure', { complete: true }, async f => {
+      f.failKey(`${t.prefix}_watch_reviews`); await f.tick(6000);
+      await f.check('failed review write stops navigation and leaves a recoverable committed completion', async () => { assert.equal(f.store.get(f.stateKey).done.length, 1); assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length, 0); assert.equal(f.page.url(), t.live(t.slugs[0])); assert.match(await f.part('status').innerText(), /保存できません/); });
+      f.failKey(''); await f.page.reload(); await f.panel().waitFor(); await f.tick(3000);
+      await f.check('startup repairs the review from committed completion after storage recovers', async () => { assert.equal(f.store.get(f.stateKey).done.length, 1); assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length, 1); assert.equal(await f.part('reviewLinks').locator('a').count(), 1); });
     });
     await scenario(t, 390, 'restore-goal', { complete: true, adjustment: 19 }, async f => {
       if (t.kind === 'mx') await f.page.evaluate(() => { const n = document.createElement('div'); n.className = 'alert alert-success'; n.setAttribute('role', 'alert'); n.textContent = '視聴ボーナスGET！ 5/20'; document.body.append(n); });
@@ -217,7 +235,7 @@ try {
     await scenario(t, 390, 'cancel-during-save', {}, async f => {
       const release = f.block(); await f.page.evaluate(() => { window.playing = true; }); await f.tick(40000);
       await f.part('autoToggle').click(); release(); await f.tick();
-      await f.check('OFF during delayed commit stops navigation after recording once', async () => { assert.equal(f.page.url(), t.live(t.slugs[0])); assert.equal(f.store.get(f.stateKey).done.length, 1); assert.equal(f.store.get(`${t.prefix}_prefs`).autoNext, false); });
+      await f.check('OFF during delayed commit stops navigation after recording once', async () => { assert.equal(f.page.url(), t.live(t.slugs[0])); assert.equal(f.store.get(f.stateKey).done.length, 1); assert.equal(f.store.get(`${t.prefix}_watch_reviews`).length, 1); assert.equal(f.store.get(`${t.prefix}_prefs`).autoNext, false); });
     });
     await scenario(t, 390, 'period-boundary', {}, async f => {
       await f.page.evaluate(() => { window.playing = true; }); await f.tick(10000);

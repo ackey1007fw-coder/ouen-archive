@@ -44,6 +44,33 @@ const sr = load(srCode), mx = load(mxCode);
 const at = (time: string) => Date.parse(time);
 const morning = at('2026-09-11T08:00:00+09:00');
 
+test('both runners persist reviews only after the serialized completion commit succeeds', async () => {
+  for (const code of [srCode, mxCode]) for (const outcome of ['success', 'state-failure', 'abort']) {
+    const start = code.indexOf('    function transact('), end = code.indexOf('    async function run(', start);
+    assert.ok(start >= 0 && end > start);
+    const period = { key: 'fixture' }, persisted = { done: [] as string[], run: 'fixture', index: 0, active: true };
+    const events: string[] = [];
+    const sandbox = {
+      period, state: structuredClone(persisted), pending: Promise.resolve(), history: [],
+      periodAt: () => period, alive: () => true, readHistory: async () => [],
+      readState: async () => structuredClone(persisted), storageKey: () => 'state',
+      GM: { setValue: async (_key: string, value: typeof persisted) => {
+        events.push('state');
+        if (outcome === 'state-failure') throw new Error('Storage failure');
+        Object.assign(persisted, value);
+      } },
+    };
+    const transact = new Script(code.slice(start, end) + '\ntransact').runInNewContext(sandbox);
+    const work = transact((latest: typeof persisted) => {
+      if (outcome === 'abort') return false;
+      latest.done.push('one');
+    }, false, null, async () => { assert.deepEqual(persisted.done, ['one']); events.push('review'); });
+    if (outcome === 'state-failure') { await assert.rejects(work, /Storage failure/); assert.deepEqual(events, ['state']); }
+    else if (outcome === 'abort') { assert.equal(await work, false); assert.deepEqual(events, []); }
+    else { assert.equal(await work, true); assert.deepEqual(events, ['state', 'review']); }
+  }
+});
+
 test('SR player discovery works without :has() and keeps the official container boundary', () => {
   const start = srCode.indexOf('    function playerMedia()');
   const end = srCode.indexOf("    el('playMedia').addEventListener", start);

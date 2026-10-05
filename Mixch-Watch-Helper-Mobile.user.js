@@ -748,7 +748,7 @@
       notice = boundaryStop ? '時間帯が切り替わりました。同じ配信の継続では再達成できません。一覧に戻り、別の配信へ進んでください。' : '時間帯が切り替わりました。新しい枠の記録に切り替えています。';
       render(); return true;
     }
-    function transact(fn, requireActive = false, beforeCommit = null) {
+    function transact(fn, requireActive = false, beforeCommit = null, afterCommit = null) {
       const p = period, runId = state.run, expectedIndex = state.index;
       const work = pending.then(async () => {
         if (periodAt(Date.now()).key !== p.key) { await rollover(); return false; }
@@ -765,6 +765,9 @@
         try { await GM.setValue(storageKey(p), latest); }
         catch (error) { if (undo) await undo(); throw error; }
         if (period.key === p.key) state = latest;
+        // Persist confirmation links only for a durable completion. Keep this
+        // write inside the serialized transaction, before navigation or reset.
+        if (afterCommit) await afterCommit();
         return true;
       });
       pending = work.catch(() => {});
@@ -842,7 +845,7 @@
         if (ok) { ended = false; notice = ''; resetTimer(); if (CONFIG.kind === 'mx' && receiptHere()) await advance(false); } return;
       }
       if (!skip && !blockedHere() && (CONFIG.kind === 'mx' ? !(receiptHere() || (automatic && ready)) : !ready)) return;
-      let destination = '', recordedRoom = null;
+      let destination = '', recordedRoom = null, reviewRecord = null;
       const priorPosition = { run: state.run, index: state.index, active: state.active, checkpoint: state.checkpoint };
       const ok = await transact(async s => {
         if (automatic && !autoAllowed(skip)) return false;
@@ -852,7 +855,7 @@
           if (!addDone(s, room, at, period, CONFIG.kind === 'mx' && receiptHere() ? receiptHere().source : 'timer')) throw new Error('Period changed');
           recordedRoom = room;
           const record = s.done.find(r => recordKey(r) === recordKey(room));
-          await saveReview({ ...record, period: period.key });
+          reviewRecord = { ...record, period: period.key };
         }
         if (automatic && !autoAllowed(skip)) return false;
         s.checkpoint = null;
@@ -862,7 +865,7 @@
           }
         }
         if (!destination) s.active = false;
-      }, true, () => prepareHistory(recordedRoom));
+      }, true, () => prepareHistory(recordedRoom), () => reviewRecord ? saveReview(reviewRecord) : null);
       if (!ok || periodAt(Date.now()).key !== period.key) return;
       await pending;
       if (periodAt(Date.now()).key !== period.key) { await rollover(); return; }
