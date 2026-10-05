@@ -145,12 +145,18 @@ test('Mixch accepts verified public live URL form, not events or movie entries',
 test('both installers are self-contained and do not automate service actions', () => {
   for (const code of [srCode,mxCode]) {
     assert.match(code,/@inject-into\s+content/);assert.match(code,/@noframes/);
-    assert.doesNotMatch(code,/@require|XMLHttpRequest|\.play\(|location\.replace\(|document\.cookie|sendBeacon/);
+    assert.doesNotMatch(code,/@require|XMLHttpRequest|location\.replace\(|document\.cookie|sendBeacon/);
     assert.match(code,/公式の達成・受取件数とは同期しません/);
     assert.match(code,/if \(!isList && !current\?\.viewing\) return/);
   }
+  assert.doesNotMatch(mxCode,/\.play\(/);
+  // SR permits native playback only in its explicit user-click handler.
+  const manualPlay = srCode.indexOf("el('playMedia').addEventListener('click'");
+  const nextHandler = srCode.indexOf("el('revealPlayer').addEventListener", manualPlay);
+  assert.ok(manualPlay >= 0 && nextHandler > manualPlay);
+  assert.doesNotMatch(srCode.slice(0, manualPlay) + srCode.slice(nextHandler),/\.play\(/);
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
-  assert.match(srCode,/@version\s+1\.6\.1/);
+  assert.match(srCode,/@version\s+1\.6\.3/);
 });
 
 test('standalone installers share parsing and state helpers; service-specific receipt UI is independent', () => {

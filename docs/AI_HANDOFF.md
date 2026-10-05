@@ -6,6 +6,16 @@ Last updated: 2026-10-01 JST
 
 > このrepositoryは公開です。個人的なDM、恋愛・人間関係の推測、住所、連絡先、家族情報、資格情報、トークンなど、プロジェクトに不要な私的情報は絶対に記録しないでください。
 
+## 2026-10-05 — #19のSR再生待ち復帰をv1.6.3へ更新（未merge）
+
+- v1.6.2導入後も残り32秒の再生待ちが続く報告。前回の複数コンテナfixture成功を実機解決と扱わない。公式モバイルプレイヤーの配布JSでcontrolsなしのvideoとTCPlayer構成を確認し、公式の▶を押せる前提の案内を修正。
+- 明示的な「配信を再生」のタップからのみ、対象のネイティブメディアのplay()を同期呼出し。GM保存やasync処理を挟まずSafariのユーザー操作を保持する。再生拒否・不在・エラーを表示。実再生時間の進行条件・公式GET・保存キー・履歴・Mixchは維持。
+- 要素数・進行・停止・読込・エラーの診断表示を追加。端末の実際の停止理由とiPhoneの動作は未検証。最新検証結果・固定head・CI・独立レビューは#19本文に保存する。
+- 10/5の3件のP2修正：wrapperが存在する時はその内部だけを信頼し、wrapper不在でもdocument全体や単独の `.st-loading` へフォールバックしない。scope自身と子孫のopen shadowRootを探索。composed祖先のhidden/aria-hidden/inert/CSS状態で旧playerを除外し、有効host内の非表示audioは保持する。同点候補はDOM順で再生せず公式画面へ案内する。
+- `tools/watch-runners-stalls.browser.mjs` に領域外loading media・wrapper自身のshadow player・旧hidden wrapperと現行playerの回帰を追加。非表示audio、曖昧候補、wrapper不在の公式HLS/TCPlayerと無関係mediaも検査。既存のmedia fixtureも公式wrapperを明示する。
+- Draftを維持。current-head CI・合成回帰・独立レビューの更新までが今回の範囲で、iPhone実機受入・Ready化・mergeへは進めない。
+- #19は既存の自分の修正branchだけを更新し、main・他AIのPRは変更しない。
+
 ## 2026-10-01 — PR #17に自動移動と非配信スキップを統合（未merge）
 
 - オーナーがPR #17に両版の自動記録・自動移動・非配信スキップを求めたため、後続PR #18のcommit `7a5acc9`を再利用して#17へ統合。baseは#16のbranch / head `716ba8e`を維持。#14/#16/mainは変更しない。

@@ -11,7 +11,7 @@ const output=process.env.RUNNER_TEST_ARTIFACTS||join(root,'.runner-test-artifact
 const sr=await readFile(join(root,'SR-Mission-Runner-Mobile.user.js'),'utf8');
 const mx=await readFile(join(root,'Mixch-Watch-Helper-Mobile.user.js'),'utf8');
 const official='<ul><li><article class="onlivecard"><a class="ga-onlive-click" data-room-id="123456" href="/r/test-room">Enter</a></article><div class="onlivecard-time is-onlive">7:00〜</div><p class="onlivecard-name">Test room</p></li></ul>';
-const live='<h1>Fixture live</h1><video playsinline></video>';
+const live='<h1>Fixture live</h1><div class="room-video-wrapper"><video playsinline></video></div>';
 const fixture={genre_list:[{genre:'daily',current_period:'day',day:{continuous_mission:[{mission_id:1001,title:'配信を30秒視聴しよう',current_value:8,target_value:20,is_active:1}],single_mission:[]}}]};
 const report={engine,scope:'Isolated HTML/GM/network fixtures, not authenticated service or physical iPhone',results:[]};
 const browser=await pw[engine].launch({headless:true,...(engine==='chromium' && process.env.RUNNER_CHROMIUM_PATH ? {executablePath:process.env.RUNNER_CHROMIUM_PATH} : {})});

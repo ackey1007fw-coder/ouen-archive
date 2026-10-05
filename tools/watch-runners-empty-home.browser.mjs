@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
-const mod=await import(pathToFileURL('C:/Users/ackey/Documents/ChatGPTWork/mily-recap-tools/browser/node_modules/playwright/index.mjs'));
-const code=await readFile('C:/Users/ackey/Documents/ChatGPTWork/sr-runner-progress-20260911/SR-Mission-Runner-Mobile.user.js','utf8');
-const engine=process.env.RUNNER_TEST_ENGINE||'chromium',browser=await mod[engine].launch({headless:true});
+import {join} from 'node:path';
+const mod=await import(pathToFileURL(join(process.env.PLAYWRIGHT_MODULE_ROOT, 'playwright/index.mjs')));
+const code=await readFile(new URL('../SR-Mission-Runner-Mobile.user.js',import.meta.url),'utf8');
+const engine=process.env.RUNNER_TEST_ENGINE||'chromium',browser=await mod[engine].launch({headless:true,...(engine==='chromium' && process.env.RUNNER_CHROMIUM_PATH ? {executablePath:process.env.RUNNER_CHROMIUM_PATH} : {})});
 const now=Date.parse('2026-09-12T06:44:00+09:00'),H=3600000,D=24*H,jst=now+9*H,day=Math.floor(jst/D)*D,start=day+3*H,key=String(start-9*H);
 const store=new Map([[`srmr_progress_v3_${key}`,{period:key,done:[],adjustment:16,queue:[],index:0,active:false,run:'',checkpoint:null,listUrl:'https://www.showroom-live.com/'}]]);
 try{const ctx=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,locale:'ja-JP'});

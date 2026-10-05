@@ -1,6 +1,19 @@
 # 視聴ヘルパー
 
-## 現行試用版 — 2026-10-01（SR v1.6.1 / Mixch v0.5.1）
+## 現行試用版 — 2026-10-05（SR v1.6.3 / Mixch v0.5.1）
+
+### SHOWROOMの32秒・再生待ちからの復帰
+
+- v1.6.2でも再生待ちが続く報告に対応。「▶ 配信を再生」のタップから、公式video/audioの `play()` を同期的に呼ぶ。自動再生・GM保存待ち・ミュート変更・架空の秒数加算は行わない。Safariの拒否・データ非対応・プレイヤー不在を表示し、実再生時間が進んだ時だけ計測する。
+- 「再生の検出状況」に動画／音声要素数、再生可能・進行・停止・読込・エラーを表示する。状態だけを画面に表示し、URLや配信データを送信しない。
+- 公式配布JSのHLSプレイヤーは `playsinline autoplay` のvideo、TCPlayerは `controls:false` で作成される構成を確認。公式の▶がある前提を撤回。報告端末の停止理由は未取得で、自動再生拒否と断定しない。
+- 大きなパネルが公式プレイヤーを覆うときは「公式画面を表示（パネルを退避）」で右上へ退避し、公式の読込・ログイン・入室制限を確認する。「再生を再確認」もパネルを退避する。「パネルを戻す」で通常表示へ戻せる。退避中も自動OFF操作を維持する。
+- 複数の `.room-video-wrapper` と、その内側のopen shadow DOMにあるvideo/audioを検査する。先頭の空コンテナだけを読んで再生待ちになる旧版の条件を修正。プレイヤー領域が存在する場合、領域外の広告等を視聴時間へ加算しない。停止中・背景中・映像時間が進んでいないときは引き続き加算しない。
+- wrapperが存在する時はそれだけを信頼境界とし、外側の `.st-loading` / `.room-video` は採らない。wrapper不在時も `.room-video` または `#live-video-player` を含む `.st-container` に限定する。scope自身のopen shadowRootも探索する。単独loading要素やdocument全体のmediaは対象外。
+- hostとcomposed祖先がhidden/aria-hidden/inert/CSS非表示の旧playerを除外する。有効host内のaudioはmedia単体が非表示でも保持する。タップ再生の有効候補が同点ならDOM順で選ばず、公式画面での再生を案内する。同期playは確定した1件だけ。
+- 未確認記録には過去の枠も含むことを説明。現在の公式残り回数と区別し、保存キー・履歴・取得判定は変更しない。
+- iPhoneの報告画面だけでは実際のpaused状態やDOMを取得できないため、報告の原因を一つに断定しない。複数コンテナの再現fixtureはv1.6.2で追加済み。今回は公式プレイヤーと同じcontrolsなしのvideoで、ユーザー操作からの再生再開・拒否時の停止を回帰に追加。
+- PR #19はDraftを維持し、修正headのCI・合成回帰・独立レビューを更新する段階。今回iPhone実機受入・Ready化・mergeは行わない。将来の実機検査では固定commitのinstallerとv1.6.3表示を確認する。実機iPhone・ログイン済みの報酬付与は未検証。
 
 ### 時間到達で自動記録・次の配信へ
 
@@ -53,7 +66,7 @@
 
 ## 配布物と役割
 
-- `SR-Mission-Runner-Mobile.user.js` v1.6.1: iPhone Safari + Userscripts向け。SHOWROOMの実際の `/lite/{slug}` 配信を自分で視聴し、時間到達で端末へ記録し、次の候補へ移動する（OFFなら手動）。
+- `SR-Mission-Runner-Mobile.user.js` v1.6.3: iPhone Safari + Userscripts向け。SHOWROOMの実際の `/lite/{slug}` 配信を自分で視聴し、時間到達で端末へ記録し、次の候補へ移動する（OFFなら手動）。
 - `Mixch-Watch-Helper-Mobile.user.js` v0.5.1: ミクチャの公開 `/u/{id}/live` に対応した視聴補助β。**Safariでの視聴コイン付与と現行の獲得条件は未検証**。公式ミッション達成ツールとは呼ばない。
 - ポータルへの組込みではない。人物情報・子サイト・feedは変更せず、配布ページの説明と版番号のみ更新する。
 

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
-const mod=await import(pathToFileURL('C:/Users/ackey/Documents/ChatGPTWork/mily-recap-tools/browser/node_modules/playwright/index.mjs'));
-const code=await readFile('C:/Users/ackey/Documents/ChatGPTWork/sr-runner-progress-20260911/SR-Mission-Runner-Mobile.user.js','utf8');
+import {join} from 'node:path';
+const mod=await import(pathToFileURL(join(process.env.PLAYWRIGHT_MODULE_ROOT, 'playwright/index.mjs')));
+const code=await readFile(new URL('../SR-Mission-Runner-Mobile.user.js',import.meta.url),'utf8');
 const engine=process.env.RUNNER_TEST_ENGINE||'chromium';
-const browser=await mod[engine].launch({headless:true});
+const browser=await mod[engine].launch({headless:true,...(engine==='chromium' && process.env.RUNNER_CHROMIUM_PATH ? {executablePath:process.env.RUNNER_CHROMIUM_PATH} : {})});
 const now=Date.parse('2026-09-12T06:55:00+09:00'),H=3600000,D=24*H,jst=now+9*H,day=Math.floor(jst/D)*D,start=day+3*H,key=String(start-9*H);
 const onlive=`<ul class="onlive-list">
 <li class="st-onlivelist__item"><div class="st-onlive__hover"><a class="st-onlive__hover-button is-fluid" href="/r/room-one">入室</a></div><time class="st-onlive__badge time">6:00〜</time><h3 class="st-room__name"><span>Room one</span></h3></li>
@@ -20,7 +21,7 @@ async function makeContext(store){
  await ctx.route('**/*',async r=>{const u=new URL(r.request().url());let body='';
   if(u.pathname==='/')body='<a href="/account/login">ログイン</a><h1>New30day</h1>';
   else if(u.pathname==='/onlive')body=onlive;
-  else if(u.pathname.startsWith('/lite/'))body='<select class="header-menu"><option value="3">ログイン</option></select><video></video>';
+  else if(u.pathname.startsWith('/lite/'))body='<select class="header-menu"><option value="3">ログイン</option></select><div class="room-video-wrapper"><video></video></div>';
   else if(u.pathname.startsWith('/lottery/ad_reward'))body='<h1>広告</h1><p>ログインが必要です。</p><button disabled>広告を見る 0/0回</button>';
   await r.fulfill({headers:{'content-type':'text/html; charset=utf-8'},body:`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${body}</body></html>`});
  });
