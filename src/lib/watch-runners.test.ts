@@ -150,7 +150,7 @@ test('both installers are self-contained and do not automate service actions', (
     assert.match(code,/if \(!isList && !current\?\.viewing\) return/);
   }
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
-  assert.match(srCode,/@version\s+1\.6\.1/);
+  assert.match(srCode,/@version\s+1\.6\.2/);
 });
 
 test('standalone installers share parsing and state helpers; service-specific receipt UI is independent', () => {

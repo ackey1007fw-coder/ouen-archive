@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SR Mission Runner Mobile
 // @namespace    https://nao.qa/
-// @version      1.6.1
+// @version      1.6.2
 // @description  SHOWROOMの実再生時間を計測し、時間到達で端末へ自動記録して次の配信へ移動。公式回数は読取専用で常時連動。
 // @author       ackey + ChatGPT
 // @match        https://nao.qa/ap/*
@@ -17,7 +17,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "sr", "version": "1.6.1", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
+  const CONFIG = {"kind": "sr", "version": "1.6.2", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -435,14 +435,16 @@
       .fav{display:flex;gap:6px;margin:6px 0}.fav a{color:#bee6ff;flex:1}.status{font-size:13px;min-height:20px;margin:4px 0}.warn{color:#ffdc9e}
       .compact .fold,.compact details,.compact .name,.compact .time{display:none}.box.compact{padding:8px 12px}
       .official-view{padding:0!important;max-width:230px}.official-view>div:not(.top):not(#autoControls):not(#autoStatus),.official-view>details,.official-view .top strong{display:none!important}.official-view .top{gap:0}.official-view #compact{width:100%;min-height:44px}.official-view #autoToggle{font-size:12px;width:100%}
+      .official-view.player-view>#status{display:block!important;padding:0 8px;font-size:12px}.official-view.player-view>#autoStatus{display:none!important}
     </style><div class="box">
       <div class="top"><strong id="title"></strong><button id="compact" class="small">小さく</button></div>
       <div class="sub" id="source"></div><div class="sub" id="period"></div><div class="progress" id="total"></div>
       <details class="fold" id="linkBox"><summary>公式の回数に連動</summary><button id="linkToggle">公式連動を使う</button><select id="linkedMission" aria-label="連動する視聴ミッション" hidden></select><div class="note" id="linkHelp"></div></details>
       <div id="linkedStatus" class="note" role="status"></div><div id="accountWarning" class="warn" role="status"></div>
       <div class="sub name" id="name"></div><div class="time" id="time"></div><div class="status" id="status" role="status"></div>
+      <div class="row" id="playerControls"><button id="revealPlayer">再生ボタンを表示（パネルを退避）</button></div>
       <div class="row" id="listControls"><select id="seconds" aria-label="視聴目安秒数"><option value="30">30秒</option><option value="32">32秒</option><option value="35">35秒</option></select><select id="target" aria-label="目標ルーム数"><option value="10">10件</option><option value="20">20件</option></select><button class="primary" id="start">続きから開始</button></div>
-      <details id="reviewBox"><summary id="reviewSummary">取得未確認の視聴記録</summary><div class="note">公式で取得を確認してください。戻っても自動では再計上しません。最新300件を端末に保存します。</div><div id="reviewLinks"></div></details>
+      <details id="reviewBox"><summary id="reviewSummary">取得未確認の視聴記録</summary><div class="note">過去の枠を含む記録です。今回の残り回数ではありません。公式で取得を確認してください。戻っても自動では再計上しません。最新300件を端末に保存します。</div><div id="reviewLinks"></div></details>
       <div class="row" id="autoControls"><button id="autoToggle">自動記録・次へ：ON</button></div><div class="note" id="autoStatus" role="status"></div>
       <div class="row" id="watchControls"><button class="primary" id="next" disabled>記録して次へ</button><button id="skip">スキップ</button></div>
       <div class="row fold" id="discover"><a class="action" id="follow" target="_blank" rel="noopener noreferrer">♡ フォロー画面</a><button id="favorite">☆ あとで見る</button></div><div class="row fold" id="excludeControls"><button id="exclude">取得済みなので除外</button></div>
@@ -550,13 +552,15 @@
     const linkKey = `${prefix}_official_link_session`;
     let linkedEnabled = CONFIG.kind === 'sr', linkedSnapshot = null, selectedMission = '';
     try { const saved = JSON.parse(sessionStorage.getItem(linkKey) || 'null'); linkedEnabled = CONFIG.kind === 'sr' || saved?.enabled === true; selectedMission = String(saved?.selected || '').slice(0, 20); linkedSnapshot = CONFIG.kind === 'sr' ? null : freshLinkedSnapshot(saved?.snapshot, Date.now()); } catch { /* Storage denial keeps linking off. */ }
-    let officialView = false;
-    function showOfficial(value) {
-      officialView = value;
+    let officialView = false, playerView = false;
+    function showOfficial(value, forPlayer = false) {
+      officialView = value; playerView = value && forPlayer;
+      root.querySelector('.box').classList.toggle('player-view', playerView);
       root.querySelector('.box').classList.toggle('official-view', value);
       host.style.top = value ? 'max(8px,env(safe-area-inset-top))' : '';
       host.style.bottom = value ? 'auto' : 'max(10px,env(safe-area-inset-bottom))';
-      host.style.right = value ? 'auto' : '10px';
+      host.style.right = value && !playerView ? 'auto' : '10px';
+      host.style.left = playerView ? 'auto' : '10px';
       render();
     }
     function saveLinked() { try { sessionStorage.setItem(linkKey, JSON.stringify({ enabled: linkedEnabled, selected: selectedMission, snapshot: linkedSnapshot })); } catch { /* In-memory mode only. */ } }
@@ -654,6 +658,8 @@
       el('listControls').hidden = !isList;
       el('watchControls').hidden = isList;
       el('pauseControls').hidden = isList;
+      el('playerControls').hidden = isList || ready || blockedHere() || stoppedRoom(document);
+      el('revealPlayer').disabled = busy || boundaryStop;
       el('discover').hidden = isList;
       el('excludeControls').hidden = isList || CONFIG.kind !== 'sr';
       el('exclude').disabled = busy || blockedHere();
@@ -687,7 +693,8 @@
         }
         el('favorite').textContent = favorites.some(r => r.slug === current.slug) ? '★ 保存済み' : '☆ あとで見る';
       }
-      if (officialView) el('compact').textContent = '視聴完了・パネルを戻す';
+      if (officialView) el('compact').textContent = playerView ? 'パネルを戻す' : '視聴完了・パネルを戻す';
+      if (playerView) el('status').textContent = paused ? '計測は一時停止中です。パネルを戻して再開してください。' : '公式プレイヤーの▶を押してください。再生が進むと計測します。';
       el('adjust').disabled = busy; el('reset').disabled = busy;
     }
     async function rollover() {
@@ -843,6 +850,7 @@
       pending = work.catch(() => { prefs.autoNext = false; notice = '設定を保存できないため、自動移動を停止しました。'; render(); });
       render();
     });
+    el('revealPlayer').addEventListener('click', () => { if (!busy && !boundaryStop) showOfficial(true, true); });
     bind('next', () => advance(stoppedRoom(document))); bind('skip', () => advance(true));
     bind('exclude', async () => {
       await remember(roomHere());
@@ -850,7 +858,7 @@
       if (activeHere()) await advance(true);
     });
     bind('pause', async () => { paused = !paused; mediaSamples = new WeakMap(); await checkpoint(); });
-    bind('retry', async () => { paused = false; mediaSamples = new WeakMap(); lastWall = performance.now(); notice = ''; playbackStatus = '配信の再生ボタンを確認してください。再生が進むと計測を再開します。'; });
+    bind('retry', async () => { paused = false; mediaSamples = new WeakMap(); lastWall = performance.now(); notice = ''; playbackStatus = '配信の再生ボタンを確認してください。再生が進むと計測を再開します。'; if (!ready) showOfficial(true, true); });
     bind('back', async () => { await checkpoint(); navigate(backUrl); });
     bind('favorite', async () => {
       favorites = roomsOnly(await GM.getValue(`${prefix}_favorites`, []));
@@ -891,9 +899,17 @@
       if (!activeHere() || blockedHere() || paused || busy || ready || document.hidden || stoppedRoom(document)) { mediaSamples = new WeakMap(); render(); return; }
       // Sample every candidate independently: a frozen first video must not hide
       // progressing playback. Add at most one delta per tick, never two streams.
-      const scope = CONFIG.kind === 'sr' ? document.querySelector('.room-video-wrapper') || document : document;
+      const scopes = [...document.querySelectorAll('.room-video-wrapper')];
+      // Inspect every player container, including native elements in open shadow
+      // roots. Keep unrelated page media out when player containers exist.
+      const mediaNodes = new Set();
+      const collect = scope => {
+        for (const node of scope.querySelectorAll('video,audio')) mediaNodes.add(node);
+        for (const node of scope.querySelectorAll('*')) if (node.shadowRoot) collect(node.shadowRoot);
+      };
+      for (const scope of scopes.length ? scopes : [document]) collect(scope);
       let delta = 0, candidates = 0;
-      for (const media of scope.querySelectorAll('video,audio')) {
+      for (const media of mediaNodes) {
         const time = Number.isFinite(media.currentTime) ? media.currentTime : null;
         const previous = mediaSamples.get(media);
         const playing = !media.paused && !media.ended && !media.error && media.readyState >= 2;
@@ -901,7 +917,7 @@
         if (playing && time !== null) { mediaSamples.set(media, time); candidates++; } else mediaSamples.delete(media);
       }
       elapsed += delta;
-      playbackStatus = delta > 0 ? '' : candidates ? '再生の進行を確認中。映像が止まっている時は、配信の再生ボタンか「再生を再確認」を押してください。' : '配信プレイヤーの再生待ちです。配信の再生ボタンを押してください。';
+      playbackStatus = delta > 0 ? '' : candidates ? '再生の進行を確認中。映像が止まっている時は、配信の再生ボタンか「再生を再確認」を押してください。' : '配信の再生待ちです。「再生ボタンを表示」でパネルを退避し、公式プレイヤーの▶を押してください。';
       if (elapsed >= prefs.seconds * 1000) { elapsed = prefs.seconds * 1000; ready = true; graceElapsed = 0; if (linkedEnabled && officialAllowed) void readOfficial(); if (prefs.autoNext) showOfficial(true); }
       render();
     }, 250);
