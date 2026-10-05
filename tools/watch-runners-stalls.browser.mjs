@@ -15,10 +15,11 @@ const key = String(Date.parse('2026-09-30T03:00:00+09:00'));
 const results = [];
 const cases = ['frozen-first-media', 'offline-escape', 'slow-storage', 'always-linked', 'single-room-id', 'hidden-resume', 'second-player-wrapper', 'shadow-player', 'unrelated-media', 'reveal-paused-player', 'tap-native-no-controls', 'tap-native-denied', 'native-loading', 'native-error', 'missing-player', 'outside-loading-media', 'wrapper-shadow-player', 'tap-visible-player', 'tap-hidden-audio', 'tap-ambiguous-player', 'unscoped-media', 'official-hls-no-wrapper', 'official-tc-no-wrapper', 'hidden-slot-media', 'tap-slotted-player', 'tap-unassigned-player', 'tap-shadow-hidden-audio', 'tap-slot-fallback-player'];
 cases.push('no-has-hls-progress', 'no-has-tc-progress', 'tap-no-has-hls', 'tap-no-has-tc', 'no-has-unscoped-media');
+cases.push('tap-loading-reload', 'tap-loading-save-failure', 'tap-pending-play', 'reload-partial-progress');
 try {
   for (const name of cases.filter(n => !process.env.RUNNER_CASE || n === process.env.RUNNER_CASE)) {
     const requests = [], errors = [];
-    let denied = false;
+    let denied = false, failSave = false, navigations = 0;
     const store = new Map([
       [`srmr_progress_v3_${key}`, {period:key,done:[],adjustment:0,queue:[{slug:'one',roomId:'123456'},{slug:'two',roomId:'234567'}],index:0,run:'fixture',active:name !== 'offline-escape',checkpoint:null,listUrl:'https://www.showroom-live.com/onlive'}],
       ['srmr_progress_v3_recent_list', {at:now,listUrl:'https://www.showroom-live.com/onlive',rooms:[{slug:'one',roomId:'123456'},{slug:'two',roomId:'234567'}]}],
@@ -28,7 +29,7 @@ try {
     const delay = () => name === 'slow-storage' ? new Promise(resolve => setTimeout(resolve, 450)) : Promise.resolve();
     for (const prefix of ['srmr_progress_v3', 'mxwh_progress_v1']) store.set(`${prefix}_prefs`, { seconds: 32, target: 20, autoNext: false });
     await ctx.exposeBinding('get', async (_s,k,d) => {await delay();return store.has(k) ? structuredClone(store.get(k)) : d;});
-    await ctx.exposeBinding('set', async (_s,k,v) => {await delay();store.set(k,structuredClone(v));});
+    await ctx.exposeBinding('set', async (_s,k,v) => {await delay();if (failSave && k === `srmr_progress_v3_${key}`) throw new Error('Save failed');store.set(k,structuredClone(v));});
     await ctx.exposeBinding('del', (_s,k) => store.delete(k));
     await ctx.addInitScript(({code,name}) => {
       if (name.includes('no-has')) {
@@ -65,11 +66,12 @@ try {
         const media = [...document.querySelectorAll('video,audio'), ...(document.getElementById('native-player')?.shadowRoot?.querySelectorAll('video,audio') || []), ...(document.getElementById('wrapper')?.shadowRoot?.querySelectorAll('video,audio') || [])];
         for (const m of media) {
           const frozen = m.id === 'frozen';
-          for (const [k,get] of Object.entries({paused:()=>m.id === 'old' && ['tap-slotted-player','tap-unassigned-player','tap-slot-fallback-player'].includes(name) ? false : window.fixturePaused && !window.fixtureStarted.has(m.id),ended:()=>false,error:()=>name === 'native-error' ? {code:3} : null,readyState:()=>name === 'native-loading' ? 1 : 4,currentTime:()=>frozen || (m.id === 'old' && name === 'tap-visible-player') || window.fixtureFrozen ? 0 : performance.now()/1000})) Object.defineProperty(m,k,{get,configurable:true});
+          for (const [k,get] of Object.entries({paused:()=>m.id === 'old' && ['tap-slotted-player','tap-unassigned-player','tap-slot-fallback-player'].includes(name) ? false : window.fixturePaused && !window.fixtureStarted.has(m.id),ended:()=>false,error:()=>name === 'native-error' ? {code:3} : null,readyState:()=>name === 'native-loading' || name.includes('loading-') || name === 'tap-pending-play' ? 1 : 4,currentTime:()=>frozen || (m.id === 'old' && name === 'tap-visible-player') || window.fixtureFrozen ? 0 : performance.now()/1000})) Object.defineProperty(m,k,{get,configurable:true});
         }
         for (const m of media) m.play = () => {
           window.fixturePlayCalls++; window.fixtureActivated = navigator.userActivation.isActive; window.fixturePlayTargets.push(m.id);
           if (name === 'tap-native-denied') return Promise.reject(new DOMException('denied','NotAllowedError'));
+          if (name === 'tap-pending-play') return new Promise(()=>{});
           window.fixtureStarted.add(m.id); return Promise.resolve();
         };
         if (name === 'single-room-id') document.getElementById('__NUXT_DATA__').textContent = JSON.stringify([['ShallowReactive',1],{data:2},['ShallowReactive',3],{'roomInfo-one':4},{room_url_key:5,room_id:6},'one',123456]);
@@ -84,6 +86,7 @@ try {
         const row = {mission_id:101,title:'配信を30秒視聴しよう',current_value:0,target_value:30,current_level:9,max_level:20,remain_reward:2,is_active:1};
         await route.fulfill({status:denied?403:200,contentType:'application/json',body:JSON.stringify({genre_list:[{genre:'daily',current_period:'day',day:{continuous_mission:[row],single_mission:[]}}]})});return;
       }
+      navigations++;
       const offline = name === 'offline-escape' && u.pathname.endsWith('/one');
       let player = ['shadow-player','wrapper-shadow-player'].includes(name) ? (name === 'shadow-player' ? '<div id="native-player"></div>' : '') : ['unrelated-media','outside-loading-media','missing-player','unscoped-media'].includes(name) ? '' : name === 'tap-native-no-controls' ? '<div class=st-loading><video id=player playsinline autoplay muted></video></div>' : name === 'tap-hidden-audio' ? '<audio id=player hidden style="display:none"></audio>' : '<video id="player"></video>';
       if (['frozen-first-media','second-player-wrapper','unrelated-media','outside-loading-media'].includes(name)) player = '<video id="frozen"></video>' + player;
@@ -102,7 +105,36 @@ try {
     const panel = p.locator('#srmr-mobile');await panel.waitFor();
     const part = id => panel.locator('#'+id);
     const tick = async ms => {await p.clock.runFor(ms);await p.waitForTimeout(name === 'slow-storage'?1600:150);};
-    if (name.startsWith('tap-')) {
+    if (['tap-loading-reload', 'tap-loading-save-failure', 'tap-pending-play', 'reload-partial-progress'].includes(name)) {
+      await tick(4000);
+      const partial = Number(await part('time').innerText());
+      if (name !== 'reload-partial-progress') {
+        assert.equal(partial, 32);
+        await part('playMedia').click(); await tick(9000);
+        assert.match(await part('playFeedback').innerText(), /8秒間/);
+        assert.equal(await part('playbackDetails').getAttribute('open'), '');
+        assert.match(await part('playbackState').innerText(), /readyState 1.*ソース なし/);
+        assert.equal(await p.evaluate(()=>window.fixturePlayCalls), 1);
+      } else assert.ok(partial < 32 && partial > 0);
+      assert.equal(store.get(`srmr_progress_v3_${key}`).done.length, 0);
+      if (name !== 'tap-pending-play') {
+        failSave = name === 'tap-loading-save-failure';
+        await part('reloadPlayer').click();
+        if (failSave) {
+          await p.waitForTimeout(250); assert.equal(navigations, 1);
+          assert.match(await part('status').innerText(), /保存できません/);
+        } else {
+          await p.waitForFunction(()=>document.querySelector('#srmr-mobile')?.shadowRoot?.getElementById('title')?.textContent?.includes('1.6.4'));
+          await p.waitForTimeout(300); assert.equal(navigations, 2);
+          const saved = store.get(`srmr_progress_v3_${key}`);
+          assert.equal(saved.done.length, 0); assert.equal(saved.index, 0);
+          assert.equal(saved.checkpoint.slug, 'one');
+          assert.ok(name === 'reload-partial-progress' ? saved.checkpoint.elapsed > 0 : saved.checkpoint.elapsed === 0);
+          assert.equal(p.url(), 'https://www.showroom-live.com/lite/one');
+          if (name === 'reload-partial-progress') assert.ok(Number(await part('time').innerText()) <= partial);
+        }
+      }
+    } else if (name.startsWith('tap-')) {
       await tick(3000); assert.equal(await part('time').innerText(), '32');
       assert.equal(await p.evaluate(()=>window.fixturePlayCalls), 0, 'Never autoplay from runner');
       await part('playMedia').click(); await p.waitForTimeout(150);

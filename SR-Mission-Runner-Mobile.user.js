@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SR Mission Runner Mobile
 // @namespace    https://nao.qa/
-// @version      1.6.3
+// @version      1.6.4
 // @description  SHOWROOMの実再生時間を計測し、時間到達で端末へ自動記録して次の配信へ移動。公式回数は読取専用で常時連動。
 // @author       ackey + ChatGPT
 // @match        https://nao.qa/ap/*
@@ -17,7 +17,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "sr", "version": "1.6.3", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
+  const CONFIG = {"kind": "sr", "version": "1.6.4", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -399,6 +399,7 @@
     let adHold = false; // legacy checkpoint compatibility; new ad tabs never set this true
     let lastWall = performance.now(), mediaSamples = new WeakMap(), pending = Promise.resolve();
     let playbackStatus = '', playFeedback = '', storageSyncing = false, graceElapsed = 0, offlineElapsed = 0;
+    let playRequest = 0, playWait = 0, playWatch = false;
     const reviewKey = `${prefix}_watch_reviews`;
     let reviews = normalizeReviews([...(normalizeReviews(await GM.getValue(reviewKey, []))), ...state.done.map(r => ({ ...r, period: period.key }))]);
     // Upgrade seeds must survive subsequent saves and period-state resets.
@@ -410,6 +411,7 @@
     const blocked = r => isRecorded(r, [...history, ...state.done]);
     const blockedHere = () => !isList && blocked(roomHere());
     function resetTimer() {
+      playRequest++; playWatch = false; playWait = 0;
       elapsed = activeHere() && state.checkpoint && recordKey(state.checkpoint) === recordKey(roomHere()) ? Math.min(state.checkpoint.elapsed, prefs.seconds * 1000) : 0;
       adHold = false; // Ignore legacy ad holds so returning users resume normally.
       ready = elapsed >= prefs.seconds * 1000;
@@ -442,7 +444,7 @@
       <details class="fold" id="linkBox"><summary>公式の回数に連動</summary><button id="linkToggle">公式連動を使う</button><select id="linkedMission" aria-label="連動する視聴ミッション" hidden></select><div class="note" id="linkHelp"></div></details>
       <div id="linkedStatus" class="note" role="status"></div><div id="accountWarning" class="warn" role="status"></div>
       <div class="sub name" id="name"></div><div class="time" id="time"></div><div class="status" id="status" role="status"></div>
-      <div class="row" id="playerControls"><button id="playMedia">▶ 配信を再生</button><button id="revealPlayer">公式画面を表示（パネルを退避）</button></div><div class="note" id="playFeedback" role="status"></div><details class="fold" id="playbackDetails"><summary>再生の検出状況</summary><div class="note" id="playbackDiagnostic"></div></details>
+      <div class="row" id="playerControls"><button id="playMedia">▶ 配信を再生</button><button id="revealPlayer">公式画面を表示（パネルを退避）</button></div><div class="note" id="playFeedback" role="status"></div><div class="row" id="reloadControls"><button id="reloadPlayer">保存して配信を再読込</button></div><details class="fold" id="playbackDetails"><summary>再生の検出状況</summary><div class="note" id="playbackDiagnostic"></div><div class="note" id="playbackState"></div></details>
       <div class="row" id="listControls"><select id="seconds" aria-label="視聴目安秒数"><option value="30">30秒</option><option value="32">32秒</option><option value="35">35秒</option></select><select id="target" aria-label="目標ルーム数"><option value="10">10件</option><option value="20">20件</option></select><button class="primary" id="start">続きから開始</button></div>
       <details id="reviewBox"><summary id="reviewSummary">取得未確認の視聴記録</summary><div class="note">過去の枠を含む記録です。今回の残り回数ではありません。公式で取得を確認してください。戻っても自動では再計上しません。最新300件を端末に保存します。</div><div id="reviewLinks"></div></details>
       <div class="row" id="autoControls"><button id="autoToggle">自動記録・次へ：ON</button></div><div class="note" id="autoStatus" role="status"></div>
@@ -653,6 +655,8 @@
       await GM.setValue(reviewKey, next); reviews = next;
     }
     function render() {
+      el('reloadControls').hidden = isList;
+      el('reloadPlayer').disabled = busy || boundaryStop;
       const count = countDone(state, prefs.target), left = routingRemaining(state);
       renderLinked(); renderReviews();
       const cutoff = CONFIG.kind === 'sr' ? period.label.startsWith('昼') ? '15:00' : '3:00' : '0:00';
@@ -906,6 +910,8 @@
     }
     el('playMedia').addEventListener('click', () => {
       if (busy || boundaryStop || paused || document.hidden || stoppedRoom(document)) return;
+      const requestId = ++playRequest;
+      playWatch = false; playWait = 0;
       const nodes = playerMedia();
       // A single explicit tap starts one native player in the user activation
       // stack. Never await GM storage or call this from a timer/auto navigation.
@@ -915,7 +921,8 @@
       const media = candidates[0];
       if (!media) { playFeedback = '配信プレイヤーが見つかりません。公式画面の読込・ログイン・入室制限を確認してください。'; render(); return; }
       const failed = error => {
-        if (!alive()) return;
+        if (!alive() || requestId !== playRequest) return;
+        playWatch = false;
         playFeedback = error?.name === 'NotAllowedError' ? 'Safariが再生を許可しませんでした。公式画面を表示してミュート解除を押すか、ページを再読込してください。'
           : error?.name === 'NotSupportedError' ? '配信データを再生できませんでした。公式画面の読込を確認し、ページを再読込してください。'
           : `再生を開始できませんでした（${cleanName(error?.name || '不明')}）。再生の検出状況を確認してください。`;
@@ -923,11 +930,19 @@
       };
       try {
         const request = media.play();
+        playWatch = true;
         playFeedback = '再生を要求しました。実際に再生が進むと残り秒数が減ります。';
         mediaSamples = new WeakMap(); lastWall = performance.now();
         if (request && typeof request.catch === 'function') request.catch(failed);
       } catch (error) { failed(error); }
       render();
+    });
+    bind('reloadPlayer', async () => {
+      // Recreate the official player through its own page initialization. Do
+      // not reset an HLS/MSE source or call media.load() behind the site.
+      const saved = await checkpoint();
+      if (!saved || !alive() || document.hidden || boundaryStop || periodAt(Date.now()).key !== period.key) return;
+      location.reload();
     });
     el('revealPlayer').addEventListener('click', () => { if (!busy && !boundaryStop) showOfficial(true, true); });
     bind('next', () => advance(stoppedRoom(document))); bind('skip', () => advance(true));
@@ -991,8 +1006,17 @@
         if (playing && time !== null) { mediaSamples.set(media, time); candidates++; } else mediaSamples.delete(media);
       }
       el('playbackDiagnostic').textContent = `動画 ${mediaNodes.filter(m => m.tagName === 'VIDEO').length}・音声 ${mediaNodes.filter(m => m.tagName === 'AUDIO').length} / 再生可能 ${candidates}・進行 ${advanced}・停止 ${stopped}・読込 ${waiting}・エラー ${errors}`;
+      el('playbackState').textContent = mediaNodes.map((m, i) => `${i + 1}: readyState ${m.readyState} / networkState ${m.networkState} / ソース ${m.currentSrc || m.src || m.srcObject ? 'あり' : 'なし'} / 時刻 ${Number.isFinite(m.currentTime) ? m.currentTime.toFixed(1) : '不明'}秒`).join(' ／ ');
       elapsed += delta;
-      if (delta > 0) playFeedback = '';
+      if (delta > 0) { if (playWatch) playRequest++; playFeedback = ''; playWatch = false; playWait = 0; }
+      else if (playWatch) {
+        playWait += step;
+        if (playWait >= 8000) {
+          playWatch = false;
+          playFeedback = '再生要求後も8秒間、進行を確認できませんでした。「保存して配信を再読込」で公式プレイヤーを読み直してください。';
+          el('playbackDetails').open = true;
+        }
+      }
       playbackStatus = delta > 0 ? '' : candidates ? '再生の進行を確認中。映像が止まっている時は、「配信を再生」を押してください。' : !mediaNodes.length ? '配信プレイヤーの読込待ちです。公式画面の読込・ログイン・入室制限を確認してください。' : errors ? '配信プレイヤーにエラーがあります。公式画面を確認して再読込してください。' : waiting ? '配信データを読込中です。進まない時は「配信を再生」を押してください。' : '配信が停止しています。「配信を再生」を押してください。ミュート中でも再生が進めば計測します。';
       if (elapsed >= prefs.seconds * 1000) { elapsed = prefs.seconds * 1000; ready = true; graceElapsed = 0; if (linkedEnabled && officialAllowed) void readOfficial(); if (prefs.autoNext) showOfficial(true); }
       render();
