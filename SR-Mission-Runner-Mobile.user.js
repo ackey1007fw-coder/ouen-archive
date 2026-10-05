@@ -855,15 +855,35 @@
       render();
     });
     function playerMedia() {
-      // The official HLS player renders .st-loading > video; TCPlayer renders
-      // #live-video-player. Both normally live inside .room-video-wrapper.
-      const scopes = [...document.querySelectorAll('.room-video-wrapper, .room-video, .st-loading, .st-container:has(#live-video-player)')];
-      const nodes = new Set();
+      // Wrapper presence is the trust boundary, even when empty or inactive.
+      // Without wrappers, accept only identified official player containers;
+      // .st-loading alone and document-wide media are not player identities.
+      const wrappers = [...document.querySelectorAll('.room-video-wrapper')];
+      const scopes = wrappers.length ? wrappers : [...document.querySelectorAll('.room-video, .st-container:has(#live-video-player)')];
+      const parent = node => node.assignedSlot || node.parentElement || node.getRootNode()?.host;
+      const activeHost = (node, hiddenAudio = false) => {
+        for (let n = node; n; n = parent(n)) {
+          // Audio itself may be non-rendered, but its owning host path must be
+          // active. Unassigned light children of an open host are not rendered.
+          if (hiddenAudio && n === node) continue;
+          if (n.parentElement?.shadowRoot && !n.assignedSlot) return false;
+          if (n.hidden || n.inert || n.getAttribute('aria-hidden') === 'true') return false;
+          const style = getComputedStyle(n);
+          if (style.display === 'none' || ['hidden', 'collapse'].includes(style.visibility) || style.opacity === '0') return false;
+        }
+        return true;
+      };
+      const nodes = new Set(), visited = new Set();
       const collect = scope => {
-        for (const node of scope.querySelectorAll('video,audio')) nodes.add(node);
+        if (visited.has(scope)) return;
+        visited.add(scope);
+        if (scope.shadowRoot) collect(scope.shadowRoot);
+        // Hidden audio is legitimate in an active host. Hidden video/ancestors
+        // identify inactive players; walk composed parents across shadow roots.
+        for (const node of scope.querySelectorAll('video,audio')) if (activeHost(node, node.tagName === 'AUDIO')) nodes.add(node);
         for (const node of scope.querySelectorAll('*')) if (node.shadowRoot) collect(node.shadowRoot);
       };
-      for (const scope of scopes.length ? scopes : [document]) collect(scope);
+      for (const scope of scopes) if (activeHost(scope)) collect(scope);
       return [...nodes];
     }
     el('playMedia').addEventListener('click', () => {
@@ -871,8 +891,10 @@
       const nodes = playerMedia();
       // A single explicit tap starts one native player in the user activation
       // stack. Never await GM storage or call this from a timer/auto navigation.
-      const score = m => (m.error || m.ended ? -100 : 0) + (m.readyState >= 2 ? 10 : 0) + (m.currentSrc || m.src || m.srcObject ? 5 : 0);
-      const media = nodes.sort((a,b) => score(b) - score(a))[0];
+      const score = m => (!m.paused ? 20 : 0) + (m.readyState >= 2 ? 10 : 0) + (m.currentSrc || m.src || m.srcObject ? 5 : 0);
+      const candidates = nodes.filter(m => !m.error && !m.ended).sort((a,b) => score(b) - score(a));
+      if (candidates.length > 1 && score(candidates[0]) === score(candidates[1])) { playFeedback = '配信プレイヤーを一意に確認できません。公式画面を表示して再生してください。'; render(); return; }
+      const media = candidates[0];
       if (!media) { playFeedback = '配信プレイヤーが見つかりません。公式画面の読込・ログイン・入室制限を確認してください。'; render(); return; }
       const failed = error => {
         if (!alive()) return;

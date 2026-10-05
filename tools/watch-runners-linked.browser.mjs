@@ -32,7 +32,7 @@ try{for(const width of [390,430,1280]){
    await route.fulfill({status:responseMode==='denied'?403:200,contentType:'application/json',body:JSON.stringify({genre_list:[{genre:'daily',current_period:'day',day:{continuous_mission:[row],single_mission:[]}}]})});return;
   }
   const home='<ul><li><article class="onlivecard"><a class="ga-onlive-click" data-room-id="123456" href="/r/test-one">room</a></article><div class="onlivecard-time is-onlive">7:00〜</div><p class="onlivecard-name">Test one</p></li></ul>';
-  const body=u.pathname==='/'?home:u.pathname.includes('/lottery/')?'<h1>Official ad dashboard fixture</h1><button id="watchAd">広告を見る</button>':'<h1>Fixture live</h1><video playsinline style="height:180px"></video><div id="chat"></div>';
+  const body=u.pathname==='/'?home:u.pathname.includes('/lottery/')?'<h1>Official ad dashboard fixture</h1><button id="watchAd">広告を見る</button>':'<h1>Fixture live</h1><div class="room-video-wrapper"><video playsinline style="height:180px"></video></div><div id="chat"></div>';
   await route.fulfill({contentType:'text/html',body:`<!doctype html><html lang="ja"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${body}</body></html>`});
  });
  const page=await ctx.newPage();page.on('pageerror',e=>errors.push(e.message));await page.clock.install({time:new Date('2026-09-11T08:00:00+09:00')});

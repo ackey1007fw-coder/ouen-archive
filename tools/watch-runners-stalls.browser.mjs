@@ -13,7 +13,7 @@ await mkdir(output, {recursive:true});
 const now = Date.parse('2026-09-30T06:40:00+09:00');
 const key = String(Date.parse('2026-09-30T03:00:00+09:00'));
 const results = [];
-const cases = ['frozen-first-media', 'offline-escape', 'slow-storage', 'always-linked', 'single-room-id', 'hidden-resume', 'second-player-wrapper', 'shadow-player', 'unrelated-media', 'reveal-paused-player', 'tap-native-no-controls', 'tap-native-denied', 'native-loading', 'native-error', 'missing-player'];
+const cases = ['frozen-first-media', 'offline-escape', 'slow-storage', 'always-linked', 'single-room-id', 'hidden-resume', 'second-player-wrapper', 'shadow-player', 'unrelated-media', 'reveal-paused-player', 'tap-native-no-controls', 'tap-native-denied', 'native-loading', 'native-error', 'missing-player', 'outside-loading-media', 'wrapper-shadow-player', 'tap-visible-player', 'tap-hidden-audio', 'tap-ambiguous-player', 'unscoped-media', 'official-hls-no-wrapper', 'official-tc-no-wrapper', 'hidden-slot-media', 'tap-slotted-player', 'tap-unassigned-player', 'tap-shadow-hidden-audio'];
 try {
   for (const name of cases.filter(n => !process.env.RUNNER_CASE || n === process.env.RUNNER_CASE)) {
     const requests = [], errors = [];
@@ -33,22 +33,26 @@ try {
       window.GM = {getValue:(k,d)=>window.get(k,d),setValue:(k,v)=>window.set(k,v),deleteValue:k=>window.del(k)};
       sessionStorage.setItem('srmr_progress_v3_official_link_session', JSON.stringify({enabled:false}));
       document.addEventListener('DOMContentLoaded', () => {
-        window.fixturePaused = ['reveal-paused-player','tap-native-no-controls','tap-native-denied'].includes(name);
-        window.fixturePlayCalls = 0; window.fixtureActivated = false;
-        if (name === 'shadow-player') {
-          const shadow = document.getElementById('native-player').attachShadow({mode:'open'});
-          shadow.innerHTML = '<video id=player></video>';
+        window.fixturePaused = name.startsWith('tap-') || name === 'reveal-paused-player';
+        window.fixturePlayCalls = 0; window.fixtureActivated = false; window.fixturePlayTargets = [];
+        window.fixtureStarted = new Set();
+        if (['shadow-player','wrapper-shadow-player','tap-unassigned-player','tap-shadow-hidden-audio'].includes(name)) {
+          const shadow = document.getElementById(name === 'shadow-player' ? 'native-player' : 'wrapper').attachShadow({mode:'open'});
+          shadow.innerHTML = name === 'tap-shadow-hidden-audio' ? '<audio id=player hidden style="display:none"></audio>' : '<video id=player></video>';
+        }
+        if (['hidden-slot-media','tap-slotted-player'].includes(name)) {
+          document.getElementById('wrapper').attachShadow({mode:'open'}).innerHTML = '<div hidden aria-hidden="true" inert><slot name="old"></slot></div><slot></slot>';
         }
         window.fixtureFrozen = false;
-        const media = [...document.querySelectorAll('video,audio'), ...(document.getElementById('native-player')?.shadowRoot?.querySelectorAll('video') || [])];
+        const media = [...document.querySelectorAll('video,audio'), ...(document.getElementById('native-player')?.shadowRoot?.querySelectorAll('video,audio') || []), ...(document.getElementById('wrapper')?.shadowRoot?.querySelectorAll('video,audio') || [])];
         for (const m of media) {
           const frozen = m.id === 'frozen';
-          for (const [k,get] of Object.entries({paused:()=>window.fixturePaused,ended:()=>false,error:()=>name === 'native-error' ? {code:3} : null,readyState:()=>name === 'native-loading' ? 1 : 4,currentTime:()=>frozen || window.fixtureFrozen ? 0 : performance.now()/1000})) Object.defineProperty(m,k,{get,configurable:true});
+          for (const [k,get] of Object.entries({paused:()=>m.id === 'old' && ['tap-slotted-player','tap-unassigned-player'].includes(name) ? false : window.fixturePaused && !window.fixtureStarted.has(m.id),ended:()=>false,error:()=>name === 'native-error' ? {code:3} : null,readyState:()=>name === 'native-loading' ? 1 : 4,currentTime:()=>frozen || (m.id === 'old' && name === 'tap-visible-player') || window.fixtureFrozen ? 0 : performance.now()/1000})) Object.defineProperty(m,k,{get,configurable:true});
         }
         for (const m of media) m.play = () => {
-          window.fixturePlayCalls++; window.fixtureActivated = navigator.userActivation.isActive;
+          window.fixturePlayCalls++; window.fixtureActivated = navigator.userActivation.isActive; window.fixturePlayTargets.push(m.id);
           if (name === 'tap-native-denied') return Promise.reject(new DOMException('denied','NotAllowedError'));
-          window.fixturePaused = false; return Promise.resolve();
+          window.fixtureStarted.add(m.id); return Promise.resolve();
         };
         if (name === 'single-room-id') document.getElementById('__NUXT_DATA__').textContent = JSON.stringify([['ShallowReactive',1],{data:2},['ShallowReactive',3],{'roomInfo-one':4},{room_url_key:5,room_id:6},'one',123456]);
         new Function(code)();
@@ -63,7 +67,16 @@ try {
         await route.fulfill({status:denied?403:200,contentType:'application/json',body:JSON.stringify({genre_list:[{genre:'daily',current_period:'day',day:{continuous_mission:[row],single_mission:[]}}]})});return;
       }
       const offline = name === 'offline-escape' && u.pathname.endsWith('/one');
-      const body = `${name === 'second-player-wrapper'?'<div class=room-video-wrapper></div>':''}<h1>Fixture room</h1>${name === 'reveal-paused-player'?'<button id="fixturePlay" style="position:fixed;top:350px;left:45%;width:50px;height:50px" onclick="window.fixturePaused=false">▶</button>':''}${offline?'<div class="room-block"><div><p class="ta-c">配信停止中</p></div></div>':''}<div class="room-video-wrapper">${['frozen-first-media','second-player-wrapper','unrelated-media'].includes(name)?'<video id="frozen"></video>':''}${name === 'shadow-player'?'<div id="native-player"></div>':['unrelated-media','missing-player'].includes(name)?'':name === 'tap-native-no-controls'?'<div class=st-loading><video id=player playsinline autoplay muted></video></div>':'<video id="player"></video>'}</div>${name === 'unrelated-media'?'<video id="advert"></video>':''}<script type="application/json" id="__NUXT_DATA__">[]</script>`;
+      let player = ['shadow-player','wrapper-shadow-player'].includes(name) ? (name === 'shadow-player' ? '<div id="native-player"></div>' : '') : ['unrelated-media','outside-loading-media','missing-player','unscoped-media'].includes(name) ? '' : name === 'tap-native-no-controls' ? '<div class=st-loading><video id=player playsinline autoplay muted></video></div>' : name === 'tap-hidden-audio' ? '<audio id=player hidden style="display:none"></audio>' : '<video id="player"></video>';
+      if (['frozen-first-media','second-player-wrapper','unrelated-media','outside-loading-media'].includes(name)) player = '<video id="frozen"></video>' + player;
+      if (['hidden-slot-media','tap-slotted-player'].includes(name)) player = `<video id=old slot=old></video><video id=${name === 'hidden-slot-media' ? 'frozen' : 'player'}></video>`;
+      if (name === 'tap-unassigned-player') player = '<video id=old></video>';
+      if (name === 'tap-shadow-hidden-audio') player = '';
+      let region = `<div class="room-video-wrapper" id="wrapper">${player}</div>`;
+      if (name === 'official-hls-no-wrapper') region = `<div class=room-video><div class=st-loading>${player}</div></div><div class=st-loading><video id=advert></video></div>`;
+      if (name === 'official-tc-no-wrapper') region = '<div class=st-container><video id=live-video-player></video></div><div class=st-loading><video id=advert></video></div>';
+      if (name === 'unscoped-media') region = '<div class=st-loading><video id=advert></video></div>';
+      const body = `${name === 'second-player-wrapper'?'<div class=room-video-wrapper></div>':name === 'tap-visible-player'?'<div class=room-video-wrapper hidden><video id=old></video></div>':''}<h1>Fixture room</h1>${name === 'reveal-paused-player'?'<button id="fixturePlay" style="position:fixed;top:350px;left:45%;width:50px;height:50px" onclick="window.fixturePaused=false">▶</button>':''}${offline?'<div class="room-block"><div><p class="ta-c">配信停止中</p></div></div>':''}${region}${name === 'unrelated-media'?'<video id="advert"></video>':name === 'outside-loading-media'?'<div class=st-loading><video id=advert></video></div>':name === 'tap-ambiguous-player'?'<div class=room-video-wrapper><video id=other></video></div>':''}<script type="application/json" id="__NUXT_DATA__">[]</script>`;
       await route.fulfill({contentType:'text/html',body:`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${body}</body></html>`});
     });
     const p = await ctx.newPage();p.on('pageerror',e=>errors.push(e.message));
@@ -71,16 +84,21 @@ try {
     const panel = p.locator('#srmr-mobile');await panel.waitFor();
     const part = id => panel.locator('#'+id);
     const tick = async ms => {await p.clock.runFor(ms);await p.waitForTimeout(name === 'slow-storage'?1600:150);};
-    if (name.startsWith('tap-native-')) {
+    if (name.startsWith('tap-')) {
       await tick(3000); assert.equal(await part('time').innerText(), '32');
       assert.equal(await p.evaluate(()=>window.fixturePlayCalls), 0, 'Never autoplay from runner');
       await part('playMedia').click(); await p.waitForTimeout(150);
-      assert.equal(await p.evaluate(()=>window.fixturePlayCalls), 1);
+      assert.equal(await p.evaluate(()=>window.fixturePlayCalls), name === 'tap-ambiguous-player' ? 0 : 1);
+      if (name === 'tap-ambiguous-player') {
+        assert.match(await part('playFeedback').innerText(), /一意に確認できません/);
+      } else {
       assert.equal(await p.evaluate(()=>window.fixtureActivated), true, 'Native play must be called in activation stack');
+      assert.deepEqual(await p.evaluate(()=>window.fixturePlayTargets), ['player'], 'Exactly the active player is requested');
+      }
       await tick(4000);
-      if (name === 'tap-native-denied') {
+      if (name === 'tap-native-denied' || name === 'tap-ambiguous-player') {
         assert.equal(await part('time').innerText(), '32');
-        assert.match(await part('playFeedback').innerText(), /Safariが再生を許可しません/);
+        if (name === 'tap-native-denied') assert.match(await part('playFeedback').innerText(), /Safariが再生を許可しません/);
       } else assert.ok(Number(await part('time').innerText()) < 32, 'Control-less native player starts from tap');
       assert.equal(store.get(`srmr_progress_v3_${key}`).done.length, 0);
     } else if (['native-loading','native-error','missing-player'].includes(name)) {
@@ -97,8 +115,17 @@ try {
       await tick(3000); assert.equal(store.get(`srmr_progress_v3_${key}`).done.length, 0);
       await p.locator('#fixturePlay').click(); await tick(4000);
       await part('compact').click(); assert.ok(Number(await part('time').innerText()) < 32);
-    } else if (name === 'unrelated-media') {
+    } else if (['unrelated-media','outside-loading-media','unscoped-media','hidden-slot-media'].includes(name)) {
       await tick(9000); assert.equal(await part('time').innerText(), '32', 'Unrelated media cannot credit frozen room player');
+      if (name !== 'unrelated-media') {
+        await part('autoToggle').click(); await tick(45000);
+        assert.equal(await part('time').innerText(), '32');
+        assert.equal(store.get(`srmr_progress_v3_${key}`).done.length, 0);
+        assert.equal(store.get(`srmr_progress_v3_${key}`).index, 0);
+        assert.equal(p.url(), 'https://www.showroom-live.com/lite/one');
+        await part('playMedia').click();
+        assert.ok(!(await p.evaluate(()=>window.fixturePlayTargets)).some(id=>['advert','old'].includes(id)), 'Never play media outside the active boundary');
+      }
     } else if (name === 'offline-escape') {
       assert.match(await part('status').innerText(),/配信.*終了|配信停止/);
       assert.equal(await part('skip').isDisabled(),false);
@@ -124,6 +151,14 @@ try {
       if (name === 'frozen-first-media') {
         await part('retry').click();await p.evaluate(()=>{window.fixtureFrozen=false;});await tick(4000);assert.ok(Number(await part('time').innerText())<n);
       }
+    }
+    if (name === 'wrapper-shadow-player') {
+      await p.evaluate(()=>{window.fixtureFrozen=false;window.fixturePaused=true;});
+      await tick(1000); const before = Number(await part('time').innerText());
+      await part('playMedia').click(); await tick(4000);
+      assert.deepEqual(await p.evaluate(()=>window.fixturePlayTargets), ['player']);
+      assert.equal(await p.evaluate(()=>window.fixtureActivated), true);
+      assert.ok(Number(await part('time').innerText()) < before);
     }
     assert.deepEqual(errors,[]);assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
     await panel.screenshot({path:join(output,`${engine}-${name}.png`)});

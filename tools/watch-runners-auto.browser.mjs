@@ -57,7 +57,7 @@ async function fixture(t, width, options = {}) {
       return;
     }
     const list = u.pathname === '/' || u.pathname === '/onlive';
-    const body = list ? t.slugs.map(slug => t.kind === 'mx' ? `<a href="${t.live(slug)}">${slug}</a>` : `<ul><li><article class="onlivecard"><a class="ga-onlive-click" href="/r/${slug}">${slug}</a></article><div class="onlivecard-time is-onlive">LIVE</div></li></ul>`).join('') : '<h1>Fixture</h1><video id="frozen"></video><video id="playing"></video><button id="reward">公式GET</button>';
+    const body = list ? t.slugs.map(slug => t.kind === 'mx' ? `<a href="${t.live(slug)}">${slug}</a>` : `<ul><li><article class="onlivecard"><a class="ga-onlive-click" href="/r/${slug}">${slug}</a></article><div class="onlivecard-time is-onlive">LIVE</div></li></ul>`).join('') : '<h1>Fixture</h1><div class="room-video-wrapper"><video id="frozen"></video><video id="playing"></video></div><button id="reward">公式GET</button>';
     await route.fulfill({ contentType: 'text/html; charset=utf-8', body: `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${body}</body></html>` });
   });
   const page = await ctx.newPage(); page.on('pageerror', e => errors.push(e.message));
