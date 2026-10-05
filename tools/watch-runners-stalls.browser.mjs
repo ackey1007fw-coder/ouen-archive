@@ -14,6 +14,7 @@ const now = Date.parse('2026-09-30T06:40:00+09:00');
 const key = String(Date.parse('2026-09-30T03:00:00+09:00'));
 const results = [];
 const cases = ['frozen-first-media', 'offline-escape', 'slow-storage', 'always-linked', 'single-room-id', 'hidden-resume', 'second-player-wrapper', 'shadow-player', 'unrelated-media', 'reveal-paused-player', 'tap-native-no-controls', 'tap-native-denied', 'native-loading', 'native-error', 'missing-player', 'outside-loading-media', 'wrapper-shadow-player', 'tap-visible-player', 'tap-hidden-audio', 'tap-ambiguous-player', 'unscoped-media', 'official-hls-no-wrapper', 'official-tc-no-wrapper', 'hidden-slot-media', 'tap-slotted-player', 'tap-unassigned-player', 'tap-shadow-hidden-audio', 'tap-slot-fallback-player'];
+cases.push('no-has-hls-progress', 'no-has-tc-progress', 'tap-no-has-hls', 'tap-no-has-tc', 'no-has-unscoped-media');
 try {
   for (const name of cases.filter(n => !process.env.RUNNER_CASE || n === process.env.RUNNER_CASE)) {
     const requests = [], errors = [];
@@ -30,6 +31,22 @@ try {
     await ctx.exposeBinding('set', async (_s,k,v) => {await delay();store.set(k,structuredClone(v));});
     await ctx.exposeBinding('del', (_s,k) => store.delete(k));
     await ctx.addInitScript(({code,name}) => {
+      if (name.includes('no-has')) {
+        // Model Safari 15.0–15.3 selector parsing in every queried DOM root.
+        window.fixtureHasQueries = 0;
+        for (const proto of [Document.prototype, Element.prototype, DocumentFragment.prototype]) {
+          for (const method of ['querySelector', 'querySelectorAll']) {
+            const original = proto[method];
+            proto[method] = function(selector) {
+              if (String(selector).includes(':has(')) {
+                window.fixtureHasQueries++;
+                throw new DOMException('Unsupported :has() selector', 'SyntaxError');
+              }
+              return original.call(this, selector);
+            };
+          }
+        }
+      }
       window.GM = {getValue:(k,d)=>window.get(k,d),setValue:(k,v)=>window.set(k,v),deleteValue:k=>window.del(k)};
       sessionStorage.setItem('srmr_progress_v3_official_link_session', JSON.stringify({enabled:false}));
       document.addEventListener('DOMContentLoaded', () => {
@@ -74,9 +91,9 @@ try {
       if (name === 'tap-unassigned-player') player = '<video id=old></video>';
       if (name === 'tap-shadow-hidden-audio') player = '';
       let region = `<div class="room-video-wrapper" id="wrapper">${player}</div>`;
-      if (name === 'official-hls-no-wrapper') region = `<div class=room-video><div class=st-loading>${player}</div></div><div class=st-loading><video id=advert></video></div>`;
-      if (name === 'official-tc-no-wrapper') region = '<div class=st-container><video id=live-video-player></video></div><div class=st-loading><video id=advert></video></div>';
-      if (name === 'unscoped-media') region = '<div class=st-loading><video id=advert></video></div>';
+      if (['official-hls-no-wrapper','no-has-hls-progress','tap-no-has-hls'].includes(name)) region = `<div class=room-video><div class=st-loading>${player}</div></div><div class=st-container><video id=advert></video></div>`;
+      if (['official-tc-no-wrapper','no-has-tc-progress','tap-no-has-tc'].includes(name)) region = '<div class=st-container><div id=live-video-player><video id=player></video></div></div><div class=st-container><video id=advert></video></div>';
+      if (['unscoped-media','no-has-unscoped-media'].includes(name)) region = '<div class=st-loading><video id=advert></video></div><div class=st-container><video id=other></video></div>';
       const body = `${name === 'second-player-wrapper'?'<div class=room-video-wrapper></div>':name === 'tap-visible-player'?'<div class=room-video-wrapper hidden><video id=old></video></div>':''}<h1>Fixture room</h1>${name === 'reveal-paused-player'?'<button id="fixturePlay" style="position:fixed;top:350px;left:45%;width:50px;height:50px" onclick="window.fixturePaused=false">▶</button>':''}${offline?'<div class="room-block"><div><p class="ta-c">配信停止中</p></div></div>':''}${region}${name === 'unrelated-media'?'<video id="advert"></video>':name === 'outside-loading-media'?'<div class=st-loading><video id=advert></video></div>':name === 'tap-ambiguous-player'?'<div class=room-video-wrapper><video id=other></video></div>':''}<script type="application/json" id="__NUXT_DATA__">[]</script>`;
       await route.fulfill({contentType:'text/html',body:`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${body}</body></html>`});
     });
@@ -116,7 +133,7 @@ try {
       await tick(3000); assert.equal(store.get(`srmr_progress_v3_${key}`).done.length, 0);
       await p.locator('#fixturePlay').click(); await tick(4000);
       await part('compact').click(); assert.ok(Number(await part('time').innerText()) < 32);
-    } else if (['unrelated-media','outside-loading-media','unscoped-media','hidden-slot-media'].includes(name)) {
+    } else if (['unrelated-media','outside-loading-media','unscoped-media','hidden-slot-media','no-has-unscoped-media'].includes(name)) {
       await tick(9000); assert.equal(await part('time').innerText(), '32', 'Unrelated media cannot credit frozen room player');
       if (name !== 'unrelated-media') {
         await part('autoToggle').click(); await tick(45000);
@@ -125,7 +142,7 @@ try {
         assert.equal(store.get(`srmr_progress_v3_${key}`).index, 0);
         assert.equal(p.url(), 'https://www.showroom-live.com/lite/one');
         await part('playMedia').click();
-        assert.ok(!(await p.evaluate(()=>window.fixturePlayTargets)).some(id=>['advert','old'].includes(id)), 'Never play media outside the active boundary');
+        assert.ok(!(await p.evaluate(()=>window.fixturePlayTargets)).some(id=>['advert','old','other'].includes(id)), 'Never play media outside the active boundary');
       }
     } else if (name === 'offline-escape') {
       assert.match(await part('status').innerText(),/配信.*終了|配信停止/);
@@ -161,6 +178,7 @@ try {
       assert.equal(await p.evaluate(()=>window.fixtureActivated), true);
       assert.ok(Number(await part('time').innerText()) < before);
     }
+    if (name.includes('no-has')) assert.equal(await p.evaluate(()=>window.fixtureHasQueries), 0, 'Player lookup must not require :has()');
     assert.deepEqual(errors,[]);assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
     await panel.screenshot({path:join(output,`${engine}-${name}.png`)});
     results.push({name,status:'passed'});console.log(`PASS ${engine}: ${name}`);await ctx.close();

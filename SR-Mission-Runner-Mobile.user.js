@@ -859,7 +859,12 @@
       // Without wrappers, accept only identified official player containers;
       // .st-loading alone and document-wide media are not player identities.
       const wrappers = [...document.querySelectorAll('.room-video-wrapper')];
-      const scopes = wrappers.length ? wrappers : [...document.querySelectorAll('.room-video, .st-container:has(#live-video-player)')];
+      // Safari before 15.4 cannot parse :has(); identify TCPlayer descendants
+      // with ordinary selectors while keeping the same official trust boundary.
+      const scopes = wrappers.length ? wrappers : [
+        ...document.querySelectorAll('.room-video'),
+        ...[...document.querySelectorAll('.st-container')].filter(scope => scope.querySelector('#live-video-player')),
+      ];
       const parent = node => node.assignedSlot || node.parentElement || node.getRootNode()?.host;
       const activeHost = (node, hiddenAudio = false) => {
         for (let n = node; n; n = parent(n)) {

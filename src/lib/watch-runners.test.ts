@@ -44,6 +44,42 @@ const sr = load(srCode), mx = load(mxCode);
 const at = (time: string) => Date.parse(time);
 const morning = at('2026-09-11T08:00:00+09:00');
 
+test('SR player discovery works without :has() and keeps the official container boundary', () => {
+  const start = srCode.indexOf('    function playerMedia()');
+  const end = srCode.indexOf("    el('playMedia').addEventListener", start);
+  assert.ok(start >= 0 && end > start);
+  const rejectHas = (selector: string) => {
+    if (selector.includes(':has(')) throw new SyntaxError('Unsupported :has() selector');
+  };
+  const media = { tagName: 'VIDEO', getAttribute: () => null, getRootNode: () => ({}) };
+  const scope = (identified: boolean) => ({
+    getAttribute: () => null, getRootNode: () => ({}),
+    querySelector: (selector: string) => { rejectHas(selector); return identified ? media : null; },
+    querySelectorAll: (selector: string) => { rejectHas(selector); return selector === 'video,audio' ? [media] : []; },
+  });
+  const hls = scope(false), tc = scope(true), unrelated = scope(false), emptyWrapper = scope(false);
+  emptyWrapper.querySelectorAll = (selector: string) => { rejectHas(selector); return []; };
+  for (const fixture of [
+    { wrappers: [], hls: [hls], tc: [unrelated], expected: [media] },
+    { wrappers: [], hls: [], tc: [tc, unrelated], expected: [media] },
+    { wrappers: [], hls: [], tc: [unrelated], expected: [] },
+    { wrappers: [emptyWrapper], hls: [hls], tc: [tc], expected: [] },
+  ]) {
+    const sandbox = {
+      document: { querySelectorAll: (selector: string) => {
+        rejectHas(selector);
+        if (selector === '.room-video-wrapper') return fixture.wrappers;
+        if (selector === '.room-video') return fixture.hls;
+        if (selector === '.st-container') return fixture.tc;
+        throw new Error(`Unexpected selector: ${selector}`);
+      } },
+      getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
+    };
+    const found = new Script(srCode.slice(start, end) + '\nplayerMedia()').runInNewContext(sandbox);
+    assert.deepEqual(Array.from(found), fixture.expected);
+  }
+});
+
 test('timer records preserve their evidence without elevating legacy records to official receipts', () => {
   for (const runner of [sr, mx]) {
     const p = runner.periodAt(morning), s = runner.normalizeState(null, p);
