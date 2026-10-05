@@ -865,6 +865,7 @@
         for (let n = node; n; n = parent(n)) {
           // Audio itself may be non-rendered, but its owning host path must be
           // active. Unassigned light children of an open host are not rendered.
+          if (n.parentElement?.tagName === 'SLOT' && n.parentElement.assignedNodes().length) return false;
           if (hiddenAudio && n === node) continue;
           if (n.parentElement?.shadowRoot && !n.assignedSlot) return false;
           if (n.hidden || n.inert || n.getAttribute('aria-hidden') === 'true') return false;
