@@ -48,7 +48,7 @@ export default function MissionRunnerPage() {
         <div className={styles.actions}>
           <a className={styles.primary} href={srInstaller}>
             🚀 SHOWROOM版をインストール
-            <small>v1.6.2</small>
+            <small>v1.6.3</small>
           </a>
           <a className={styles.secondary} href={mixchInstaller}>
             🎬 ミクチャ版をインストール
@@ -134,7 +134,7 @@ export default function MissionRunnerPage() {
         <div className={styles.releaseGrid}>
           <div>
             <strong>SHOWROOM</strong>
-            <span>v1.6.2</span>
+            <span>v1.6.3</span>
             <p>iPhone Safari向け。公開β。</p>
           </div>
           <div>
