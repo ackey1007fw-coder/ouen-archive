@@ -191,7 +191,7 @@
   function migrateLegacy(legacy, period) {
     return normalizeState({ period: period.key, done: legacy?.completed }, period);
   }
-  // Only media time that advanced while visible is counted. No autoplay, reward API,
+  // Only media time that advanced while visible is counted. No play(), reward API,
   // auto-follow, reward claims, or background viewing is performed.
   function timerDelta(wall, mediaDelta, visible, playing) {
     return visible && playing && wall > 0 && wall <= 1500 && mediaDelta > 0 && mediaDelta <= 2
