@@ -21,13 +21,15 @@ const targets = [
 async function fixture(t, width, options = {}) {
   const store = new Map();
   const stateKey = `${t.prefix}_${t.key}`;
+  if (options.manual) store.set(`${t.prefix}_prefs`, { seconds: 32, target: 20, autoNext: false });
   store.set(stateKey, { period: t.key, done: options.seed ? [{slug:t.slugs[2],at:now-1000,source:'timer'}] : [], adjustment: options.adjustment || 0,
     queue: t.slugs.map(slug => ({ slug, roomId: options.official ? '123456' : '' })), index: 0, active: true, run: 'fixture',
     checkpoint: options.complete ? { slug: t.slugs[0], elapsed: 32000, hold: false } : null, listUrl: t.home });
   const ctx = await browser.newContext({ viewport: { width, height: 844 }, isMobile: width < 500, hasTouch: width < 500, locale: 'ja-JP' });
   let fail = false, failAll = false, failKey = '', delay = false, blockedWrite = null, blockAll = false, blockedReview = null;
   const errors = [], requests = [], checks = [];
-  await ctx.exposeBinding('get', async (_s, k, d) => { if (delay) await new Promise(r => setTimeout(r, 450)); return store.has(k) ? structuredClone(store.get(k)) : d; });
+  let blockedRead = null, readStarted = null;
+  await ctx.exposeBinding('get', async (_s, k, d) => { if (k === stateKey && blockedRead) { readStarted?.(); await blockedRead; } if (delay) await new Promise(r => setTimeout(r, 450)); return store.has(k) ? structuredClone(store.get(k)) : d; });
   await ctx.exposeBinding('set', async (_s, k, v) => {
     if (delay) await new Promise(r => setTimeout(r, 450));
     if (k === failKey) throw new Error('Fixture selected-key denial');
@@ -69,6 +71,7 @@ async function fixture(t, width, options = {}) {
   const hidden = async value => { await page.evaluate(v => { window.fixtureHidden = v; document.dispatchEvent(new Event('visibilitychange')); }, value); await tick(); };
   await page.goto(t.live(t.slugs[0])); await panel().waitFor();
   return { ctx, page, panel, part, tick, check, hidden, store, stateKey, errors, requests, checks,
+    blockRead: () => { let release, entered; const started = new Promise(r => { entered = r; }); readStarted = entered; blockedRead = new Promise(r => { release = r; }); return { started, release: () => { blockedRead = null; readStarted = null; release(); } }; },
     blockReview: () => { let release; blockedReview = new Promise(r => { release = r; }); return () => { blockedReview = null; release(); }; },
     setFail: v => { fail = v; }, failKey: k => { failKey = k; }, failAny: () => { failAll = true; }, setDelay: v => { delay = v; }, block: (all = false) => { blockAll = all; let release; blockedWrite = new Promise(r => { release = r; }); return () => { blockedWrite = null; release(); }; } };
 }
@@ -85,6 +88,47 @@ async function scenario(t, width, name, options, fn) {
   finally { await f.ctx.close(); }
 }
 try {
+  const mx = targets.find(t => t.kind === 'mx');
+  for (const width of [390, 430, 1280]) {
+    for (const mode of ['insert', 'change']) await scenario(mx, width, `background-notice-${mode}`, { manual: true }, async f => {
+      const notice = text => f.page.evaluate(text => {
+        let node = document.getElementById('bonus');
+        if (!node) { node = document.createElement('div'); node.id = 'bonus'; node.className = 'alert alert-success'; node.setAttribute('role', 'alert'); document.body.append(node); }
+        node.textContent = text;
+      }, text);
+      if (mode === 'change') { await notice('視聴ボーナスGET！ 4/20'); await f.tick(); }
+      await f.hidden(true); await notice('視聴ボーナスGET！ 5/20'); await f.tick(); await f.hidden(false);
+      await f.check('background notice stays seen after return without receipt or a new official total', async () => {
+        assert.equal(await f.part('next').isDisabled(), true);
+        assert.doesNotMatch(await f.part('time').innerText(), /確認済み/);
+        assert.doesNotMatch(await f.part('total').innerText(), /公式連動 5 \/ 20/);
+        assert.equal(f.store.get(f.stateKey).done.length, 0);
+      });
+      await notice('視聴ボーナスGET！ 6/20'); await f.tick();
+      await f.check('a fresh foreground notice still confirms receipt and total', async () => {
+        assert.equal(await f.part('next').isDisabled(), false);
+        assert.match(await f.part('total').innerText(), /公式連動 6 \/ 20/);
+      });
+    });
+    for (const invalidation of ['hidden', 'bfcache', 'offline', 'expiry']) await scenario(mx, width, `manual-receipt-${invalidation}`, { manual: true }, async f => {
+      const notice = () => f.page.evaluate(() => { const n = document.createElement('div'); n.className = 'alert alert-success'; n.setAttribute('role', 'alert'); n.textContent = '視聴ボーナスGET！ 5/20'; document.body.append(n); });
+      await notice(); await f.tick(); assert.equal(await f.part('next').isDisabled(), false);
+      const blocked = f.blockRead(); await f.part('next').click(); await blocked.started;
+      if (invalidation === 'hidden') await f.hidden(true);
+      if (invalidation === 'bfcache') await f.page.evaluate(() => { window.dispatchEvent(new Event('pagehide')); window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })); });
+      if (invalidation === 'offline') { await f.page.evaluate(() => { const n = document.createElement('div'); n.id = 'stop'; n.className = 'alert alert-warning'; n.setAttribute('role', 'alert'); n.textContent = 'ライブが終了しています'; document.body.append(n); }); await f.tick(); }
+      if (invalidation === 'expiry') { await f.page.clock.setSystemTime(new Date(await f.page.evaluate(() => Date.now()) + 16 * 60000)); await f.tick(); }
+      blocked.release(); await f.tick();
+      await f.check('invalidated manual receipt aborts without timer credit, review or navigation', async () => {
+        assert.equal(f.page.url(), mx.live(mx.slugs[0])); assert.equal(f.store.get(f.stateKey).done.length, 0);
+        assert.equal((f.store.get(`${mx.prefix}_watch_reviews`) || []).length, 0);
+      });
+      if (invalidation === 'hidden') await f.hidden(false);
+      if (invalidation === 'offline') await f.page.evaluate(() => document.getElementById('stop').remove());
+      await notice(); await f.tick(); await f.part('next').click(); await f.page.waitForURL(mx.live(mx.slugs[1]));
+      await f.check('a new foreground receipt permits a manual official completion', async () => { assert.equal(f.store.get(f.stateKey).done.length, 1); assert.equal(f.store.get(f.stateKey).done[0].source, 'official'); });
+    });
+  }
   for (const t of targets) for (const width of [390, 430, 1280]) {
     await scenario(t, width, 'automatic-flow', {}, async f => {
       const { page, part, tick, check, hidden, store, stateKey } = f;

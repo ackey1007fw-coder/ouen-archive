@@ -551,7 +551,7 @@
     let linkedEnabled = true, linkedSnapshot = null, selectedMission = '', receipt = null;
     try { const saved = JSON.parse(sessionStorage.getItem(linkKey) || 'null'); selectedMission = String(saved?.selected || '').slice(0, 20); linkedSnapshot = CONFIG.kind === 'sr' ? null : freshLinkedSnapshot(saved?.snapshot, Date.now()); sessionStorage.removeItem(receiptKey); } catch { /* Linking stays ON in memory if storage is denied. */ }
     function receiptHere() {
-      return CONFIG.kind === 'mx' && current?.viewing && !stoppedRoom(document) && receipt?.slug === current.slug && receipt.period === period.key && ['official', 'manual'].includes(receipt.source) && Number.isSafeInteger(receipt.at) && receipt.at <= Date.now() && Date.now() - receipt.at <= 15 * 60000 ? receipt : null;
+      return CONFIG.kind === 'mx' && current?.viewing && !document.hidden && !stoppedRoom(document) && receipt?.slug === current.slug && receipt.period === period.key && ['official', 'manual'].includes(receipt.source) && Number.isSafeInteger(receipt.at) && receipt.at <= Date.now() && Date.now() - receipt.at <= 15 * 60000 ? receipt : null;
     }
     function saveReceipt(source) {
       if (!current?.viewing || document.hidden || stoppedRoom(document)) return;
@@ -616,11 +616,11 @@
     };
     for (const node of document.querySelectorAll(toastSelector)) seenToasts.set(node, { text: node.textContent, visible: visibleNotice(node) });
     function scanBonusNotices() {
-      if (!alive() || document.hidden) return;
+      if (!alive()) return;
       for (const node of document.querySelectorAll(toastSelector)) {
         const visible = visibleNotice(node), previous = seenToasts.get(node), text = node.textContent;
         seenToasts.set(node, { text, visible });
-        if (!visible || (previous?.visible && previous.text === text)) continue;
+        if (document.hidden || !visible || (previous?.visible && previous.text === text)) continue;
         const parsed = mixchBonusProgress(text);
         if (parsed) { if (current?.viewing) saveReceipt('official'); acceptLinked(parsed); }
       }
@@ -757,7 +757,7 @@
       notice = boundaryStop ? '時間帯が切り替わりました。同じ配信の継続では再達成できません。一覧に戻り、別の配信へ進んでください。' : '時間帯が切り替わりました。新しい枠の記録に切り替えています。';
       render(); return true;
     }
-    function transact(fn, requireActive = false, beforeCommit = null, afterCommit = null) {
+    function transact(fn, requireActive = false, beforeCommit = null, afterCommit = null, canCommit = null) {
       const p = period, runId = state.run, expectedIndex = state.index;
       const work = pending.then(async () => {
         if (periodAt(Date.now()).key !== p.key) { await rollover(); return false; }
@@ -771,6 +771,7 @@
         history = await readHistory();
         if (await fn(latest) === false || !alive()) return false;
         const undo = beforeCommit ? await beforeCommit() : null;
+        if (canCommit && !canCommit()) { if (undo) await undo(); return false; }
         try { await GM.setValue(storageKey(p), latest); }
         catch (error) { if (undo) await undo(); throw error; }
         if (period.key === p.key) state = latest;
@@ -854,9 +855,12 @@
         if (ok) { ended = false; notice = ''; resetTimer(); if (CONFIG.kind === 'mx' && receiptHere()) await advance(false); } return;
       }
       if (!skip && !blockedHere() && (CONFIG.kind === 'mx' ? !(receiptHere() || (automatic && ready)) : !ready)) return;
+      const requiredReceipt = CONFIG.kind === 'mx' && !skip && !automatic && !blockedHere() ? receiptHere() : null;
+      const manualReceiptValid = () => !requiredReceipt || receiptHere() === requiredReceipt;
       let destination = '', recordedRoom = null, reviewRecord = null;
       const priorPosition = { run: state.run, index: state.index, active: state.active, checkpoint: state.checkpoint };
-      const ok = await transact(async s => {
+      const ok = await transact(s => {
+        if (!manualReceiptValid()) return false;
         if (automatic && !autoAllowed(skip)) return false;
         if (automatic && countDone(s, prefs.target) >= prefs.target) { s.active = false; return; }
         const room = s.queue[s.index], at = Date.now();
@@ -874,7 +878,7 @@
           }
         }
         if (!destination) s.active = false;
-      }, true, () => prepareHistory(recordedRoom), () => reviewRecord ? saveReview(reviewRecord) : null);
+      }, true, () => prepareHistory(recordedRoom), () => reviewRecord ? saveReview(reviewRecord) : null, manualReceiptValid);
       if (!ok || periodAt(Date.now()).key !== period.key) return;
       await pending;
       if (periodAt(Date.now()).key !== period.key) { await rollover(); return; }
@@ -890,6 +894,7 @@
         } else { ended = true; notice = '時間到達を記録しました。自動移動は停止しました。'; }
         return;
       }
+      if (!manualReceiptValid()) { ended = true; notice = '記録を保存しました。取得確認が失効したため移動を停止しました。'; return; }
       if (destination) navigate(destination);
       else if (advanceRemaining(state, automatic) > 0) navigate(backUrl);
       else { ended = true; notice = '目標まで記録しました。公式の結果・受取も確認してください。'; }

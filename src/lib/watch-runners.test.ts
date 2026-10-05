@@ -71,6 +71,24 @@ test('both runners persist reviews only after the serialized completion commit s
   }
 });
 
+test('Mixch revalidates manual evidence after the last asynchronous precommit step', async () => {
+  const start = mxCode.indexOf('    function transact('), end = mxCode.indexOf('    async function run(', start);
+  const period = { key: 'fixture' }, persisted = { done: [] as string[], run: 'fixture', index: 0, active: true };
+  let valid = true;
+  const events: string[] = [];
+  const sandbox = {
+    period, state: structuredClone(persisted), pending: Promise.resolve(), history: [],
+    periodAt: () => period, alive: () => true, readHistory: async () => [],
+    readState: async () => structuredClone(persisted), storageKey: () => 'state',
+    GM: { setValue: async () => { events.push('state'); } },
+  };
+  const transact = new Script(mxCode.slice(start, end) + '\ntransact').runInNewContext(sandbox);
+  const ok = await transact((latest: typeof persisted) => { latest.done.push('one'); }, true,
+    async () => { await Promise.resolve(); valid = false; return async () => { events.push('undo'); }; },
+    async () => { events.push('review'); }, () => valid);
+  assert.equal(ok, false); assert.deepEqual(persisted.done, []); assert.deepEqual(events, ['undo']);
+});
+
 test('SR player discovery works without :has() and keeps the official container boundary', () => {
   const start = srCode.indexOf('    function playerMedia()');
   const end = srCode.indexOf("    el('playMedia').addEventListener", start);
