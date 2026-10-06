@@ -12,6 +12,7 @@ const browser=await pw[engine].launch({headless:true,...(engine==='chromium' && 
 try{for(const width of [390,430,1280]){
  const store=new Map(),requests=[],checks=[],errors=[];let responseMode='normal';
  const ctx=await browser.newContext({viewport:{width,height:844},isMobile:width<500,hasTouch:width<500,locale:'ja-JP'});
+    for (const prefix of ['srmr_progress_v3', 'mxwh_progress_v1']) store.set(`${prefix}_prefs`, { seconds: 32, target: 20, autoNext: false });
  await ctx.exposeBinding('fixtureGet',(_s,k,d)=>store.has(k)?structuredClone(store.get(k)):d);
  await ctx.exposeBinding('fixtureSet',(_s,k,v)=>store.set(k,structuredClone(v)));
  await ctx.exposeBinding('fixtureDelete',(_s,k)=>store.delete(k));
@@ -31,7 +32,7 @@ try{for(const width of [390,430,1280]){
    await route.fulfill({status:responseMode==='denied'?403:200,contentType:'application/json',body:JSON.stringify({genre_list:[{genre:'daily',current_period:'day',day:{continuous_mission:[row],single_mission:[]}}]})});return;
   }
   const home='<ul><li><article class="onlivecard"><a class="ga-onlive-click" data-room-id="123456" href="/r/test-one">room</a></article><div class="onlivecard-time is-onlive">7:00〜</div><p class="onlivecard-name">Test one</p></li></ul>';
-  const body=u.pathname==='/'?home:u.pathname.includes('/lottery/')?'<h1>Official ad dashboard fixture</h1><button id="watchAd">広告を見る</button>':'<h1>Fixture live</h1><video playsinline style="height:180px"></video><div id="chat"></div>';
+  const body=u.pathname==='/'?home:u.pathname.includes('/lottery/')?'<h1>Official ad dashboard fixture</h1><button id="watchAd">広告を見る</button>':'<h1>Fixture live</h1><div class="room-video-wrapper"><video playsinline style="height:180px"></video></div><div id="chat"></div>';
   await route.fulfill({contentType:'text/html',body:`<!doctype html><html lang="ja"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${body}</body></html>`});
  });
  const page=await ctx.newPage();page.on('pageerror',e=>errors.push(e.message));await page.clock.install({time:new Date('2026-09-11T08:00:00+09:00')});
@@ -63,7 +64,7 @@ try{for(const width of [390,430,1280]){
   await check('Mixch bonus notice supplies the actual counter and actual limit',async()=>{assert.match(await part('linkedStatus').innerText(),/達成 17\/25.*残り 8回/);assert.match(await part('total').innerText(),/公式連動 17 \/ 25/);});
   await check('linked progress persists over real navigation to another room',async()=>{await page.goto('https://mixch.tv/u/100002/live');await panel().waitFor();assert.match(await part('linkedStatus').innerText(),/達成 17\/25/);});
   await alert('視聴ボーナスGET！ 25/25 スパコメや応援アイテムでライブをガンガン盛り上げよう♪');
-  await check('Mixch official limit prevents starting a further measurement',async()=>{assert.equal(await part('next').isDisabled(),true);assert.match(await part('linkedStatus').innerText(),/残り 0回/);assert.match(await part('status').innerText(),/公式の目標に到達/);});
+  await check('Mixch final receipt remains recordable while the list cannot start another measurement',async()=>{assert.equal(await part('next').isDisabled(),false);assert.match(await part('linkedStatus').innerText(),/残り 0回/);assert.match(await part('status').innerText(),/公式.*通知を確認/);await page.goto('https://mixch.tv/');await panel().waitFor();assert.equal(await part('start').isDisabled(),true);});
   await panel().screenshot({path:join(out,`linked-mixch-${width}.png`)});
   await check('expired progress is unknown rather than a fabricated zero',async()=>{await page.clock.setSystemTime(new Date('2026-09-11T09:00:00+09:00'));await tick(3000);assert.match(await part('linkedStatus').innerText(),/確認待ち/);assert.doesNotMatch(await part('linkedStatus').innerText(),/達成 0/);});
   assert.deepEqual(errors,[]);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));

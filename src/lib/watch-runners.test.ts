@@ -5,8 +5,9 @@ import { test } from 'node:test';
 
 type Period = { key: string; start: number; end: number; label: string };
 type Room = { slug: string; name?: string; startedAt?: number | null };
-type State = { period: string; done: { slug: string; at: number }[]; adjustment: number; queue: Room[]; index: number; active: boolean; checkpoint: { slug: string; elapsed: number } | null };
+type State = { period: string; done: { slug: string; at: number; source?: string }[]; adjustment: number; queue: Room[]; index: number; active: boolean; checkpoint: { slug: string; elapsed: number } | null };
 type Runner = {
+  normalizeReviews: (raw: unknown) => {slug:string;period:string;at:number;source:string;reward:string}[];
   hydrationRoomId: (text: string, slug: string) => string;
   officialOnliveFallback: (url:string)=>string;
   repeatedMissionCount: (raw: unknown) => {achieved:number;received:number;pending:number;limit:number} | null;
@@ -26,7 +27,7 @@ type Runner = {
   profileUrl: (slug: string) => string;
   normalizeState: (raw: unknown, period: Period) => State;
   countDone: (state: State, target: number) => number;
-  addDone: (state: State, slug: string | Room, now: number, period: Period) => boolean;
+  addDone: (state: State, slug: string | Room, now: number, period: Period, source?: string) => boolean;
   adjustCount: (state: State, n: number) => void;
   migrateLegacy: (raw: unknown, period: Period) => State;
   timerDelta: (wall: number, media: number, visible: boolean, playing: boolean) => number;
@@ -42,6 +43,102 @@ function load(code: string): Runner {
 const sr = load(srCode), mx = load(mxCode);
 const at = (time: string) => Date.parse(time);
 const morning = at('2026-09-11T08:00:00+09:00');
+
+test('both runners persist reviews only after the serialized completion commit succeeds', async () => {
+  for (const code of [srCode, mxCode]) for (const outcome of ['success', 'state-failure', 'abort']) {
+    const start = code.indexOf('    function transact('), end = code.indexOf('    async function run(', start);
+    assert.ok(start >= 0 && end > start);
+    const period = { key: 'fixture' }, persisted = { done: [] as string[], run: 'fixture', index: 0, active: true };
+    const events: string[] = [];
+    const sandbox = {
+      period, state: structuredClone(persisted), pending: Promise.resolve(), history: [],
+      periodAt: () => period, alive: () => true, readHistory: async () => [],
+      readState: async () => structuredClone(persisted), storageKey: () => 'state',
+      GM: { setValue: async (_key: string, value: typeof persisted) => {
+        events.push('state');
+        if (outcome === 'state-failure') throw new Error('Storage failure');
+        Object.assign(persisted, value);
+      } },
+    };
+    const transact = new Script(code.slice(start, end) + '\ntransact').runInNewContext(sandbox);
+    const work = transact((latest: typeof persisted) => {
+      if (outcome === 'abort') return false;
+      latest.done.push('one');
+    }, false, null, async () => { assert.deepEqual(persisted.done, ['one']); events.push('review'); });
+    if (outcome === 'state-failure') { await assert.rejects(work, /Storage failure/); assert.deepEqual(events, ['state']); }
+    else if (outcome === 'abort') { assert.equal(await work, false); assert.deepEqual(events, []); }
+    else { assert.equal(await work, true); assert.deepEqual(events, ['state', 'review']); }
+  }
+});
+
+test('Mixch revalidates manual evidence after the last asynchronous precommit step', async () => {
+  const start = mxCode.indexOf('    function transact('), end = mxCode.indexOf('    async function run(', start);
+  const period = { key: 'fixture' }, persisted = { done: [] as string[], run: 'fixture', index: 0, active: true };
+  let valid = true;
+  const events: string[] = [];
+  const sandbox = {
+    period, state: structuredClone(persisted), pending: Promise.resolve(), history: [],
+    periodAt: () => period, alive: () => true, readHistory: async () => [],
+    readState: async () => structuredClone(persisted), storageKey: () => 'state',
+    GM: { setValue: async () => { events.push('state'); } },
+  };
+  const transact = new Script(mxCode.slice(start, end) + '\ntransact').runInNewContext(sandbox);
+  const ok = await transact((latest: typeof persisted) => { latest.done.push('one'); }, true,
+    async () => { await Promise.resolve(); valid = false; return async () => { events.push('undo'); }; },
+    async () => { events.push('review'); }, () => valid);
+  assert.equal(ok, false); assert.deepEqual(persisted.done, []); assert.deepEqual(events, ['undo']);
+});
+
+test('SR player discovery works without :has() and keeps the official container boundary', () => {
+  const start = srCode.indexOf('    function playerMedia()');
+  const end = srCode.indexOf("    el('playMedia').addEventListener", start);
+  assert.ok(start >= 0 && end > start);
+  const rejectHas = (selector: string) => {
+    if (selector.includes(':has(')) throw new SyntaxError('Unsupported :has() selector');
+  };
+  const media = { tagName: 'VIDEO', getAttribute: () => null, getRootNode: () => ({}) };
+  const scope = (identified: boolean) => ({
+    getAttribute: () => null, getRootNode: () => ({}),
+    querySelector: (selector: string) => { rejectHas(selector); return identified ? media : null; },
+    querySelectorAll: (selector: string) => { rejectHas(selector); return selector === 'video,audio' ? [media] : []; },
+  });
+  const hls = scope(false), tc = scope(true), unrelated = scope(false), emptyWrapper = scope(false);
+  emptyWrapper.querySelectorAll = (selector: string) => { rejectHas(selector); return []; };
+  for (const fixture of [
+    { wrappers: [], hls: [hls], tc: [unrelated], expected: [media] },
+    { wrappers: [], hls: [], tc: [tc, unrelated], expected: [media] },
+    { wrappers: [], hls: [], tc: [unrelated], expected: [] },
+    { wrappers: [emptyWrapper], hls: [hls], tc: [tc], expected: [] },
+  ]) {
+    const sandbox = {
+      document: { querySelectorAll: (selector: string) => {
+        rejectHas(selector);
+        if (selector === '.room-video-wrapper') return fixture.wrappers;
+        if (selector === '.room-video') return fixture.hls;
+        if (selector === '.st-container') return fixture.tc;
+        throw new Error(`Unexpected selector: ${selector}`);
+      } },
+      getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
+    };
+    const found = new Script(srCode.slice(start, end) + '\nplayerMedia()').runInNewContext(sandbox);
+    assert.deepEqual(Array.from(found), fixture.expected);
+  }
+});
+
+test('timer records preserve their evidence without elevating legacy records to official receipts', () => {
+  for (const runner of [sr, mx]) {
+    const p = runner.periodAt(morning), s = runner.normalizeState(null, p);
+    const slug = runner === sr ? 'one' : '100001';
+    runner.addDone(s, slug, morning, p, 'timer');
+    runner.addDone(s, slug, morning + 1000, p, 'official');
+    assert.equal(s.done.length, 1);
+    assert.equal(runner.normalizeState(s, p).done[0].source, 'timer');
+    for (const source of [undefined, 'invented']) {
+      assert.equal(runner.normalizeState({ period: p.key, done: [{ slug, at: morning, source }] }, p).done[0].source, 'legacy');
+    }
+    assert.equal(runner.normalizeState({ period: p.key, done: [{ slug, at: morning, source: 'official' }] }, p).done[0].source, 'official');
+  }
+});
 
 test('public hydration ID is bound to the exact current room and rejects account/other-room IDs', () => {
   const payload = [['ShallowReactive',1],{data:2},['ShallowReactive',3],{'roomInfo-one':4},{room_url_key:5,room_id:6},'one',123456];
@@ -129,16 +226,22 @@ test('Mixch accepts verified public live URL form, not events or movie entries',
 test('both installers are self-contained and do not automate service actions', () => {
   for (const code of [srCode,mxCode]) {
     assert.match(code,/@inject-into\s+content/);assert.match(code,/@noframes/);
-    assert.doesNotMatch(code,/@require|XMLHttpRequest|\.play\(|location\.replace\(|document\.cookie|sendBeacon/);
+    assert.doesNotMatch(code,/@require|XMLHttpRequest|location\.replace\(|document\.cookie|sendBeacon/);
     assert.match(code,/公式の達成・受取件数とは同期しません/);
     assert.match(code,/if \(!isList && !current\?\.viewing\) return/);
   }
+  assert.doesNotMatch(mxCode,/\.play\(/);
+  // SR permits native playback only in its explicit user-click handler.
+  const manualPlay = srCode.indexOf("el('playMedia').addEventListener('click'");
+  const nextHandler = srCode.indexOf("el('revealPlayer').addEventListener", manualPlay);
+  assert.ok(manualPlay >= 0 && nextHandler > manualPlay);
+  assert.doesNotMatch(srCode.slice(0, manualPlay) + srCode.slice(nextHandler),/\.play\(/);
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
-  assert.match(srCode,/@version\s+1\.5\.0/);
+  assert.match(srCode,/@version\s+1\.6\.5/);
 });
 
-test('standalone installers share the same reviewed engine without runtime dependencies', () => {
-  const engine = (s: string) => s.slice(s.indexOf('(() => {')).replace(/const CONFIG = .*?;/, 'const CONFIG = {};').replace(/\r\n/g, '\n');
+test('standalone installers share parsing and state helpers; service-specific receipt UI is independent', () => {
+  const engine = (s: string) => s.slice(s.indexOf('(() => {'), s.indexOf('  const lifetimeKey')).replace(/const CONFIG = .*?;/, 'const CONFIG = {};').replace(/\r\n/g, '\n');
   assert.equal(engine(srCode), engine(mxCode));
 });
 
@@ -254,4 +357,18 @@ test('official home without live cards has a safe onlive fallback while onlive i
   assert.equal(sr.officialOnliveFallback('https://showroom-live.com/?genre_id=103&token=nope'),'https://www.showroom-live.com/onlive?genre_id=103');
   for (const u of ['https://www.showroom-live.com/onlive','https://www.showroom-live.com/r/x','https://evil.test/','http://www.showroom-live.com/','https://u@www.showroom-live.com/']) assert.equal(sr.officialOnliveFallback(u),'');
   assert.equal(mx.officialOnliveFallback('https://www.showroom-live.com/'),'');
+});
+
+
+test('review ledger keeps completion separate from reward proof and rejects fabricated storage', () => {
+  for (const runner of [sr, mx]) {
+    const slug = runner === sr ? 'one' : '100001', period = runner.periodAt(morning).key;
+    const record = {slug, period, at:morning, source:'timer'};
+    const reviews = runner.normalizeReviews([record]);
+    assert.equal(reviews[0].source,'timer'); assert.equal(reviews[0].reward,'unconfirmed');
+    const confirmed = runner.normalizeReviews([...reviews, {...record,reward:'official'},record]);
+    assert.equal(confirmed.length,1); assert.equal(confirmed[0].reward,'official'); assert.equal(confirmed[0].source,'timer');
+    assert.equal(runner.normalizeReviews([null, {...record,period:'wrong'}, {...record,source:'legacy'}, {...record,at:Infinity}, {...record,slug:'../bad'}]).length,0);
+    assert.equal(runner.normalizeReviews({malformed:true}).length,0);
+  }
 });

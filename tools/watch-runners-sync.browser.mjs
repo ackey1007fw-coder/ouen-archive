@@ -11,7 +11,7 @@ const output=process.env.RUNNER_TEST_ARTIFACTS||join(root,'.runner-test-artifact
 const sr=await readFile(join(root,'SR-Mission-Runner-Mobile.user.js'),'utf8');
 const mx=await readFile(join(root,'Mixch-Watch-Helper-Mobile.user.js'),'utf8');
 const official='<ul><li><article class="onlivecard"><a class="ga-onlive-click" data-room-id="123456" href="/r/test-room">Enter</a></article><div class="onlivecard-time is-onlive">7:00〜</div><p class="onlivecard-name">Test room</p></li></ul>';
-const live='<h1>Fixture live</h1><video playsinline></video>';
+const live='<h1>Fixture live</h1><div class="room-video-wrapper"><video playsinline></video></div>';
 const fixture={genre_list:[{genre:'daily',current_period:'day',day:{continuous_mission:[{mission_id:1001,title:'配信を30秒視聴しよう',current_value:8,target_value:20,is_active:1}],single_mission:[]}}]};
 const report={engine,scope:'Isolated HTML/GM/network fixtures, not authenticated service or physical iPhone',results:[]};
 const browser=await pw[engine].launch({headless:true,...(engine==='chromium' && process.env.RUNNER_CHROMIUM_PATH ? {executablePath:process.env.RUNNER_CHROMIUM_PATH} : {})});
@@ -19,6 +19,7 @@ try{for(const width of [390,430,1280]){
   const checks=[],errors=[],requests=[],store=new Map();let mode='ok',release;
   const ctx=await browser.newContext({viewport:{width,height:844},isMobile:width<500,hasTouch:width<500,timezoneId:'America/Los_Angeles',locale:'ja-JP'});
   const check=async(name,fn)=>{await fn();checks.push(name);console.log(`PASS ${engine}-${width}: ${name}`);};
+    for (const prefix of ['srmr_progress_v3', 'mxwh_progress_v1']) store.set(`${prefix}_prefs`, { seconds: 32, target: 20, autoNext: false });
   await ctx.exposeBinding('fixtureGet',(_s,k,d)=>store.has(k)?structuredClone(store.get(k)):d);
   await ctx.exposeBinding('fixtureSet',(_s,k,v)=>store.set(k,structuredClone(v)));
   await ctx.exposeBinding('fixtureDelete',(_s,k)=>store.delete(k));
@@ -47,7 +48,7 @@ try{for(const width of [390,430,1280]){
   try{
     await page.goto('https://mixch.tv/u/100001');await tick();
     await check('Mixch unsupported profile stays untouched',async()=>assert.equal(await page.locator('#'+id).count(),0));
-    await check('Mixch soft navigation into a live room mounts the correct panel',async()=>{await soft('/u/100001/live',live);await part('title').waitFor();assert.match(await part('title').innerText(),/v0\.3\.4/);assert.equal(await part('watchControls').isVisible(),true);});
+    await check('Mixch soft navigation into a live room mounts the correct panel',async()=>{await soft('/u/100001/live',live);await part('title').waitFor();assert.match(await part('title').innerText(),/v0\.5\.1/);assert.equal(await part('watchControls').isVisible(),true);});
     await part('next').click();await tick(2000);assert.equal(await part('time').innerText(),'32');
     await page.evaluate(()=>{window.fixturePaused=false;});await tick(4500);
     await check('Mixch detached panel is restored without resetting or duplicating its timer',async()=>{const before=Number(await part('time').innerText());await page.evaluate(()=>document.getElementById('mxwh-mobile').remove());await tick();assert.equal(await page.locator('#'+id).count(),1);assert.ok(Number(await part('time').innerText())<=before);});
@@ -58,7 +59,8 @@ try{for(const width of [390,430,1280]){
     await check('Mixch restoration on the list uses list controls and no official network reads',async()=>{await soft('/','<a href="/u/100003/live">Cached room A</a><a href="/u/100004/live">Cached room B</a>');assert.equal(await part('listControls').isVisible(),true);assert.equal(await part('officialBox').isVisible(),false);assert.equal(requests.length,0);});
     await check('Mixch direct-room measurement can continue to the next cached list candidate',async()=>{
       await tick(1200);await soft('/u/100003/live',live);await part('next').click();await tick();
-      await page.evaluate(()=>{window.fixturePaused=false;});await tick(45000);assert.match(await part('time').innerText(),/目安到達/);
+      await page.evaluate(()=>{window.fixturePaused=false;});await tick(45000);await part('compact').click();assert.match(await part('time').innerText(),/取得未確認/);assert.equal(await part('next').isDisabled(),true);
+      await page.evaluate(()=>{const n=document.createElement('div');n.className='alert alert-success';n.setAttribute('role','alert');n.textContent='視聴ボーナスGET！ 1/20';document.body.appendChild(n);});await tick();assert.match(await part('time').innerText(),/取得確認済み/);
       await part('next').click();await page.waitForURL('https://mixch.tv/u/100004/live');await part('title').waitFor();assert.match(await part('time').innerText(),/^32$/);
     });
     await page.locator('#'+id).screenshot({path:join(output,`mixch-lifecycle-${width}.png`)});
