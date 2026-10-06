@@ -16,6 +16,7 @@ const results = [];
 const cases = ['frozen-first-media', 'offline-escape', 'slow-storage', 'always-linked', 'single-room-id', 'hidden-resume', 'second-player-wrapper', 'shadow-player', 'unrelated-media', 'reveal-paused-player', 'tap-native-no-controls', 'tap-native-denied', 'native-loading', 'native-error', 'missing-player', 'outside-loading-media', 'wrapper-shadow-player', 'tap-visible-player', 'tap-hidden-audio', 'tap-ambiguous-player', 'unscoped-media', 'official-hls-no-wrapper', 'official-tc-no-wrapper', 'hidden-slot-media', 'tap-slotted-player', 'tap-unassigned-player', 'tap-shadow-hidden-audio', 'tap-slot-fallback-player'];
 cases.push('no-has-hls-progress', 'no-has-tc-progress', 'tap-no-has-hls', 'tap-no-has-tc', 'no-has-unscoped-media');
 cases.push('tap-loading-reload', 'tap-loading-save-failure', 'tap-pending-play', 'reload-partial-progress');
+cases.push('tap-muted-gate', 'tap-aborted-stalled', 'tap-aborted-recovered', 'tap-aborted-hidden', 'tap-delayed-abort');
 try {
   for (const name of cases.filter(n => !process.env.RUNNER_CASE || n === process.env.RUNNER_CASE)) {
     const requests = [], errors = [];
@@ -70,8 +71,15 @@ try {
         }
         for (const m of media) m.play = () => {
           window.fixturePlayCalls++; window.fixtureActivated = navigator.userActivation.isActive; window.fixturePlayTargets.push(m.id);
+          if (name === 'tap-muted-gate' && (!m.muted || !m.playsInline || !navigator.userActivation.isActive)) return Promise.reject(new DOMException('activation/mute/inline required','NotAllowedError'));
           if (name === 'tap-native-denied') return Promise.reject(new DOMException('denied','NotAllowedError'));
           if (name === 'tap-pending-play') return new Promise(()=>{});
+          if (name.startsWith('tap-aborted-')) {
+            m.dispatchEvent(new Event('emptied')); m.dispatchEvent(new Event('pause'));
+            if (name === 'tap-aborted-recovered') setTimeout(()=>{window.fixtureStarted.add(m.id);m.dispatchEvent(new Event('playing'));}, 2000);
+            return Promise.reject(new DOMException('source reset','AbortError'));
+          }
+          if (name === 'tap-delayed-abort') { window.fixtureStarted.add(m.id); return new Promise((_,reject)=>setTimeout(()=>reject(new DOMException('old request','AbortError')),2000)); }
           window.fixtureStarted.add(m.id); return Promise.resolve();
         };
         if (name === 'single-room-id') document.getElementById('__NUXT_DATA__').textContent = JSON.stringify([['ShallowReactive',1],{data:2},['ShallowReactive',3],{'roomInfo-one':4},{room_url_key:5,room_id:6},'one',123456]);
@@ -124,7 +132,7 @@ try {
           await p.waitForTimeout(250); assert.equal(navigations, 1);
           assert.match(await part('status').innerText(), /保存できません/);
         } else {
-          await p.waitForFunction(()=>document.querySelector('#srmr-mobile')?.shadowRoot?.getElementById('title')?.textContent?.includes('1.6.4'));
+          await p.waitForFunction(()=>document.querySelector('#srmr-mobile')?.shadowRoot?.getElementById('title')?.textContent?.includes('1.6.5'));
           await p.waitForTimeout(300); assert.equal(navigations, 2);
           const saved = store.get(`srmr_progress_v3_${key}`);
           assert.equal(saved.done.length, 0); assert.equal(saved.index, 0);
@@ -134,6 +142,33 @@ try {
           if (name === 'reload-partial-progress') assert.ok(Number(await part('time').innerText()) <= partial);
         }
       }
+    } else if (name.startsWith('tap-aborted-')) {
+      await tick(3000); assert.equal(await part('time').innerText(), '32');
+      assert.equal(await p.evaluate(()=>window.fixturePlayCalls), 0);
+      await part('playMedia').click(); await p.waitForTimeout(150);
+      assert.match(await part('playFeedback').innerText(), /AbortError.*8秒間/);
+      assert.equal(await part('playbackDetails').getAttribute('open'), '');
+      assert.match(await part('playbackEvents').innerText(), /emptied.*pause/);
+      if (name === 'tap-aborted-hidden') {
+        await p.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'));});
+        await tick(15000); assert.equal(await part('time').innerText(), '32');
+        assert.equal(await p.evaluate(()=>window.fixturePlayCalls), 1);
+        await p.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));});
+        await p.waitForTimeout(200); await tick(9000);
+        assert.equal(await part('time').innerText(), '32');
+      } else {
+        await tick(9000);
+        if (name === 'tap-aborted-recovered') {
+          assert.ok(Number(await part('time').innerText()) < 32);
+          assert.equal(await part('playFeedback').innerText(), '');
+          assert.match(await part('playbackEvents').innerText(), /playing/);
+        } else {
+          assert.equal(await part('time').innerText(), '32');
+          assert.match(await part('playFeedback').innerText(), /8秒間、進行を確認できません/);
+        }
+      }
+      assert.equal(await p.evaluate(()=>window.fixturePlayCalls), 1, 'AbortError never starts an automatic retry');
+      assert.equal(store.get(`srmr_progress_v3_${key}`).done.length, 0);
     } else if (name.startsWith('tap-')) {
       await tick(3000); assert.equal(await part('time').innerText(), '32');
       assert.equal(await p.evaluate(()=>window.fixturePlayCalls), 0, 'Never autoplay from runner');
@@ -150,6 +185,8 @@ try {
         assert.equal(await part('time').innerText(), '32');
         if (name === 'tap-native-denied') assert.match(await part('playFeedback').innerText(), /Safariが再生を許可しません/);
       } else assert.ok(Number(await part('time').innerText()) < 32, 'Control-less native player starts from tap');
+      if (name === 'tap-muted-gate') assert.equal(await p.locator('#player').evaluate(m=>m.muted && m.playsInline), true);
+      if (name === 'tap-delayed-abort') assert.equal(await part('playFeedback').innerText(), '', 'A stale rejected play must not overwrite progressing playback');
       assert.equal(store.get(`srmr_progress_v3_${key}`).done.length, 0);
     } else if (['native-loading','native-error','missing-player'].includes(name)) {
       await tick(9000); assert.equal(await part('time').innerText(),'32');

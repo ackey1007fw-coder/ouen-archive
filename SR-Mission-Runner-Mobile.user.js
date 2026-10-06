@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SR Mission Runner Mobile
 // @namespace    https://nao.qa/
-// @version      1.6.4
+// @version      1.6.5
 // @description  SHOWROOMの実再生時間を計測し、時間到達で端末へ自動記録して次の配信へ移動。公式回数は読取専用で常時連動。
 // @author       ackey + ChatGPT
 // @match        https://nao.qa/ap/*
@@ -17,7 +17,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "sr", "version": "1.6.4", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
+  const CONFIG = {"kind": "sr", "version": "1.6.5", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -444,7 +444,7 @@
       <details class="fold" id="linkBox"><summary>公式の回数に連動</summary><button id="linkToggle">公式連動を使う</button><select id="linkedMission" aria-label="連動する視聴ミッション" hidden></select><div class="note" id="linkHelp"></div></details>
       <div id="linkedStatus" class="note" role="status"></div><div id="accountWarning" class="warn" role="status"></div>
       <div class="sub name" id="name"></div><div class="time" id="time"></div><div class="status" id="status" role="status"></div>
-      <div class="row" id="playerControls"><button id="playMedia">▶ 配信を再生</button><button id="revealPlayer">公式画面を表示（パネルを退避）</button></div><div class="note" id="playFeedback" role="status"></div><div class="row" id="reloadControls"><button id="reloadPlayer">保存して配信を再読込</button></div><details class="fold" id="playbackDetails"><summary>再生の検出状況</summary><div class="note" id="playbackDiagnostic"></div><div class="note" id="playbackState"></div></details>
+      <div class="row" id="playerControls"><button id="playMedia">▶ ミュートで配信を再生</button><button id="revealPlayer">公式画面を表示（パネルを退避）</button></div><div class="note" id="playFeedback" role="status"></div><div class="row" id="reloadControls"><button id="reloadPlayer">保存して配信を再読込</button></div><details class="fold" id="playbackDetails"><summary>再生の検出状況</summary><div class="note" id="playbackDiagnostic"></div><div class="note" id="playbackState"></div><div class="note" id="playbackEvents"></div></details>
       <div class="row" id="listControls"><select id="seconds" aria-label="視聴目安秒数"><option value="30">30秒</option><option value="32">32秒</option><option value="35">35秒</option></select><select id="target" aria-label="目標ルーム数"><option value="10">10件</option><option value="20">20件</option></select><button class="primary" id="start">続きから開始</button></div>
       <details id="reviewBox"><summary id="reviewSummary">取得未確認の視聴記録</summary><div class="note">過去の枠を含む記録です。今回の残り回数ではありません。公式で取得を確認してください。戻っても自動では再計上しません。最新300件を端末に保存します。</div><div id="reviewLinks"></div></details>
       <div class="row" id="autoControls"><button id="autoToggle">自動記録・次へ：ON</button></div><div class="note" id="autoStatus" role="status"></div>
@@ -908,6 +908,22 @@
       for (const scope of scopes) if (activeHost(scope)) collect(scope);
       return [...nodes];
     }
+    // Observe only official media. Keep a short, in-memory event trace without
+    // URLs or response bodies; AbortError alone cannot identify its cause.
+    const observedMedia = new WeakSet(), mediaIds = new WeakMap(), mediaEvents = [];
+    let nextMediaId = 0;
+    function observeMedia(media) {
+      if (observedMedia.has(media)) return;
+      observedMedia.add(media); mediaIds.set(media, ++nextMediaId);
+      for (const type of ['loadstart', 'emptied', 'abort', 'pause', 'playing', 'waiting', 'stalled', 'canplay', 'error']) {
+        media.addEventListener(type, () => {
+          if (!alive()) return;
+          mediaEvents.push(`${mediaIds.get(media)}:${type} (ready ${media.readyState}, paused ${media.paused ? 1 : 0})`);
+          if (mediaEvents.length > 8) mediaEvents.shift();
+          el('playbackEvents').textContent = mediaEvents.join(' → ');
+        }, { signal: ctx.signal });
+      }
+    }
     el('playMedia').addEventListener('click', () => {
       if (busy || boundaryStop || paused || document.hidden || stoppedRoom(document)) return;
       const requestId = ++playRequest;
@@ -922,13 +938,22 @@
       if (!media) { playFeedback = '配信プレイヤーが見つかりません。公式画面の読込・ログイン・入室制限を確認してください。'; render(); return; }
       const failed = error => {
         if (!alive() || requestId !== playRequest) return;
-        playWatch = false;
-        playFeedback = error?.name === 'NotAllowedError' ? 'Safariが再生を許可しませんでした。公式画面を表示してミュート解除を押すか、ページを再読込してください。'
+        // The official player may resume after a source reset. Observe that
+        // recovery for the same 8-second window; never issue an automatic play.
+        playWatch = error?.name === 'AbortError';
+        el('playbackDetails').open = true;
+        playFeedback = error?.name === 'AbortError' ? '再生要求が中断されました（AbortError）。公式プレイヤーの復帰を8秒間確認します。進まなければ「保存して配信を再読込」を押してください。'
+          : error?.name === 'NotAllowedError' ? 'Safariが再生を許可しませんでした。公式画面を表示してミュート解除を押すか、ページを再読込してください。'
           : error?.name === 'NotSupportedError' ? '配信データを再生できませんでした。公式画面の読込を確認し、ページを再読込してください。'
           : `再生を開始できませんでした（${cleanName(error?.name || '不明')}）。再生の検出状況を確認してください。`;
         render();
       };
       try {
+        observeMedia(media);
+        // This button explicitly requests muted, inline playback. Set these
+        // in the same tap stack, before play(), including audio-only streams.
+        media.muted = true;
+        if (media.tagName === 'VIDEO') { media.playsInline = true; media.setAttribute('playsinline', ''); }
         const request = media.play();
         playWatch = true;
         playFeedback = '再生を要求しました。実際に再生が進むと残り秒数が減ります。';
@@ -997,6 +1022,7 @@
       const mediaNodes = playerMedia();
       let delta = 0, candidates = 0, waiting = 0, stopped = 0, errors = 0, advanced = 0;
       for (const media of mediaNodes) {
+        observeMedia(media);
         const time = Number.isFinite(media.currentTime) ? media.currentTime : null;
         const previous = mediaSamples.get(media);
         const playing = !media.paused && !media.ended && !media.error && media.readyState >= 2;
@@ -1006,7 +1032,7 @@
         if (playing && time !== null) { mediaSamples.set(media, time); candidates++; } else mediaSamples.delete(media);
       }
       el('playbackDiagnostic').textContent = `動画 ${mediaNodes.filter(m => m.tagName === 'VIDEO').length}・音声 ${mediaNodes.filter(m => m.tagName === 'AUDIO').length} / 再生可能 ${candidates}・進行 ${advanced}・停止 ${stopped}・読込 ${waiting}・エラー ${errors}`;
-      el('playbackState').textContent = mediaNodes.map((m, i) => `${i + 1}: readyState ${m.readyState} / networkState ${m.networkState} / ソース ${m.currentSrc || m.src || m.srcObject ? 'あり' : 'なし'} / 時刻 ${Number.isFinite(m.currentTime) ? m.currentTime.toFixed(1) : '不明'}秒`).join(' ／ ');
+      el('playbackState').textContent = mediaNodes.map(m => `${mediaIds.get(m)}: readyState ${m.readyState} / networkState ${m.networkState} / ソース ${m.currentSrc || m.src || m.srcObject ? 'あり' : 'なし'} / 時刻 ${Number.isFinite(m.currentTime) ? m.currentTime.toFixed(1) : '不明'}秒 / ミュート ${m.muted ? 'ON' : 'OFF'} / エラーコード ${m.error?.code || 0}`).join(' ／ ');
       elapsed += delta;
       if (delta > 0) { if (playWatch) playRequest++; playFeedback = ''; playWatch = false; playWait = 0; }
       else if (playWatch) {
