@@ -20,7 +20,7 @@
 ## Public tools
 
 - [Mission Runner](./src/app/tools/mission-runner/page.tsx) — iPhone Safari + Userscripts向けの非公式の視聴補助ツール（時間到達で自動記録・次へ）
-  - SHOWROOM v1.6.3
+  - SHOWROOM v1.6.6
   - ミクチャ v0.5.1 β
   - 公開ページ: `/tools/mission-runner`
   - 仕様・制限: [`docs/WATCH-RUNNERS.md`](./docs/WATCH-RUNNERS.md)
