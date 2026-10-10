@@ -237,7 +237,7 @@ test('both installers are self-contained and do not automate service actions', (
   assert.ok(manualPlay >= 0 && nextHandler > manualPlay);
   assert.doesNotMatch(srCode.slice(0, manualPlay) + srCode.slice(nextHandler),/\.play\(/);
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
-  assert.match(srCode,/@version\s+1\.6\.5/);
+  assert.match(srCode,/@version\s+1\.6\.6/);
 });
 
 test('standalone installers share parsing and state helpers; service-specific receipt UI is independent', () => {

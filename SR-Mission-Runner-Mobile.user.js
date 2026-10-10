@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SR Mission Runner Mobile
 // @namespace    https://nao.qa/
-// @version      1.6.5
+// @version      1.6.6
 // @description  SHOWROOMの実再生時間を計測し、時間到達で端末へ自動記録して次の配信へ移動。公式回数は読取専用で常時連動。
 // @author       ackey + ChatGPT
 // @match        https://nao.qa/ap/*
@@ -17,7 +17,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "sr", "version": "1.6.5", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
+  const CONFIG = {"kind": "sr", "version": "1.6.6", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -686,10 +686,10 @@
         const allRooms = listRooms();
         const candidates = allRooms.filter(r => !blocked(r));
         el('name').textContent = `この一覧の未記録 ${candidates.length}ルーム / 記録済み ${allRooms.length - candidates.length}件は候補外`;
-        const fallback = !allRooms.length ? officialOnliveFallback(location.href) : '';
+        const fallback = !candidates.length ? officialOnliveFallback(location.href) : '';
         el('start').textContent = fallback ? 'オンライブ一覧を開く ▶' : count ? `残り${left}件を続ける ▶` : '開始 ▶';
         el('start').disabled = busy || !left || (!candidates.length && !fallback);
-        el('status').textContent = notice || (fallback ? '公式トップに配信中カードが出ていないため、オンライブ一覧へ移動して続けます。記録はそのまま引き継ぎます。' : !allRooms.length ? 'オンライブ一覧の配信中カードを読込待ち。少し待つか、ページを更新してください。' : left ? '途中で閉じても、この枠の記録は残ります。' : '目標件数まで記録済み。公式の結果も確認してください。');
+        el('status').textContent = notice || (fallback ? '公式トップに未記録の候補がないため、オンライブ一覧で別の配信を探します。記録はそのまま引き継ぎます。' : !allRooms.length ? 'オンライブ一覧の配信中カードを読込待ち。少し待つか、ページを更新してください。' : !candidates.length && left ? 'この一覧に未記録の候補がありません。配信中一覧の更新やジャンル切替で別の配信を探してください。' : left ? '途中で閉じても、この枠の記録は残ります。' : '目標件数まで記録済み。公式の結果も確認してください。');
       } else {
         const room = state.queue.find(r => r.slug === current.slug);
         el('name').textContent = room?.name || titleFromPage();

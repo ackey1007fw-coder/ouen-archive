@@ -132,7 +132,7 @@ try {
           await p.waitForTimeout(250); assert.equal(navigations, 1);
           assert.match(await part('status').innerText(), /保存できません/);
         } else {
-          await p.waitForFunction(()=>document.querySelector('#srmr-mobile')?.shadowRoot?.getElementById('title')?.textContent?.includes('1.6.5'));
+          await p.waitForFunction(()=>document.querySelector('#srmr-mobile')?.shadowRoot?.getElementById('title')?.textContent?.includes('1.6.6'));
           await p.waitForTimeout(300); assert.equal(navigations, 2);
           const saved = store.get(`srmr_progress_v3_${key}`);
           assert.equal(saved.done.length, 0); assert.equal(saved.index, 0);
