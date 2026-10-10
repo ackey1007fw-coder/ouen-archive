@@ -46,13 +46,13 @@ try{
   const home='<h1>New30day</h1><ul><li><span class="onlivecard-time is-onlive">配信中</span><article class="onlivecard"><a class="onlivecard-link" href="/r/room-one">Room one</a></article></li></ul>';
   const store=new Map([[`srmr_progress_v3_${key}`,state]]),ctx=await makeContext(store,home),p=await ctx.newPage();
   await p.clock.install({time:new Date(now)});await p.goto('https://www.showroom-live.com/');const panel=p.locator('#srmr-mobile');await panel.waitFor();
-  assert.match(await panel.locator('#total').innerText(),/10 \\/ 20/);
-  assert.match(await panel.locator('#name').innerText(),/未記録 0ルーム \\/ 記録済み 1件/);
+  assert.match(await panel.locator('#total').innerText(),/10 \/ 20/);
+  assert.match(await panel.locator('#name').innerText(),/未記録 0ルーム \/ 記録済み 1件/);
   assert.equal(await panel.locator('#start').innerText(),'オンライブ一覧を開く ▶');
   assert.equal(await panel.locator('#start').isDisabled(),false);
   await panel.locator('#start').click();await p.waitForURL('https://www.showroom-live.com/onlive');
   await p.locator('#srmr-mobile').waitFor();
-  assert.match(await p.locator('#srmr-mobile #total').innerText(),/10 \\/ 20/);
+  assert.match(await p.locator('#srmr-mobile #total').innerText(),/10 \/ 20/);
   assert.match(await p.locator('#srmr-mobile #name').innerText(),/未記録 2ルーム/);
   assert.equal(await p.locator('#srmr-mobile #start').isDisabled(),false);
   assert.equal(store.get(`srmr_progress_v3_${key}`).done.length,1);
