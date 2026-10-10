@@ -1,10 +1,19 @@
 # AI HANDOFF — 応援アーカイブ
 
-Last updated: 2026-10-06 JST
+Last updated: 2026-10-10 JST
 
 この文書は、ChatGPT / Claude Code / Codex / Grok など別のAIや別チャットが、過去の会話を読めなくても現在地点から作業を再開できるようにするための「現在のセーブデータ」です。
 
 > このrepositoryは公開です。個人的なDM、恋愛・人間関係の推測、住所、連絡先、家族情報、資格情報、トークンなど、プロジェクトに不要な私的情報は絶対に記録しないでください。
+
+## 2026-10-10 — SR v1.6.6の候補0件からの復帰・iPhone試用準備
+
+- 既存PR #20 / `fix/sr-no-unrecorded-home-20261010` を再利用。baseは#17の `fix/mixch-official-confirm-20261001`。依存はmain ← #14 ← #16 ← #17 ← #20。mainはSR v1.0.2のまま。親branch・mainは未変更。
+- v1.6.6は公式トップの未記録候補0件から `/onlive` へ進める。実記録10件・除外履歴16件で、件数・履歴・確認台帳・お気に入り・設定を保持し、次の未記録配信まで進むfixtureを実行。/onliveの0候補・20/20停止も含む7ケース×Chromium 390/430/1280px＝21ケース成功。旧v1.6.5は同条件で開始不可となり失敗。
+- Userscripts公式release/4.x.xのGM保存はファイル名で分かれるため、iPhoneは同名の既存ファイルへre-install。別名追加・reset・拡張データ削除を更新手順にしない。コードのコピーと件数データのバックアップを混同しない。
+- 配布ページの古いv1.6.5表記をv1.6.6へ揃え、試用版と表示。固定installer・具体的な更新手順・検証限界・統合順は `docs/SR-MISSION-RUNNER-166-TRIAL.md` を参照。
+- 元head c53ae30のCI #38046338892成功。ローカルlint（error 0、既存warning 5）・typecheck・138 unit・build成功。更新後headのCIはPR #20本文で確認する。ブラウザー回帰はローカル実行で、CIに含めていない。
+- WebKitは共有ライブラリ不足、導入も環境制限で失敗し未実行。現行ログイン済み公式DOM、iPhoneの上書き・記録保持・再生・公式報酬付与は未検証。実機受入前のDraft維持。既存PRで統合する準備までで、main／production更新済みと扱わない。
 
 ## 2026-10-06 — SR v1.6.5の明示ミュート再生・AbortError観測（実機未解決）
 
