@@ -12,14 +12,14 @@ const onlive=`<ul class="onlive-list">
 <li class="st-onlivelist__item"><div class="st-onlive__hover"><a class="st-onlive__hover-button is-fluid" href="/r/room-two">入室</a></div><time class="st-onlive__badge time">6:10〜</time><h3 class="st-room__name"><span>Room two</span></h3></li>
 <li class="st-onlivelist__item"><div class="st-onlive__hover"><a class="st-onlive__hover-button is-fluid" href="/r/room-three">入室</a></div><time class="st-onlive__badge time">6:20〜</time><h3 class="st-room__name"><span>Room three</span></h3></li>
 </ul>`;
-async function makeContext(store){
+async function makeContext(store, homeBody='<a href="/account/login">ログイン</a><h1>New30day</h1>'){
  const ctx=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,locale:'ja-JP'});
  await ctx.exposeBinding('g',(_s,k,d)=>store.has(k)?structuredClone(store.get(k)):d);
  await ctx.exposeBinding('s',(_s,k,v)=>store.set(k,structuredClone(v)));
  await ctx.exposeBinding('d',(_s,k)=>store.delete(k));
  await ctx.addInitScript(({code})=>{window.GM={getValue:(k,d)=>window.g(k,d),setValue:(k,v)=>window.s(k,v),deleteValue:k=>window.d(k)};document.addEventListener('DOMContentLoaded',()=>new Function(code)());},{code});
  await ctx.route('**/*',async r=>{const u=new URL(r.request().url());let body='';
-  if(u.pathname==='/')body='<a href="/account/login">ログイン</a><h1>New30day</h1>';
+  if(u.pathname==='/')body=homeBody;
   else if(u.pathname==='/onlive')body=onlive;
   else if(u.pathname.startsWith('/lite/'))body='<select class="header-menu"><option value="3">ログイン</option></select><div class="room-video-wrapper"><video></video></div>';
   else if(u.pathname.startsWith('/lottery/ad_reward'))body='<h1>広告</h1><p>ログインが必要です。</p><button disabled>広告を見る 0/0回</button>';
@@ -38,6 +38,25 @@ try{
   await panel.locator('#start').click();await p.waitForURL('https://www.showroom-live.com/onlive');await p.locator('#srmr-mobile').waitFor();
   assert.match(await p.locator('#srmr-mobile #name').innerText(),/未記録 3ルーム/);assert.match(await p.locator('#srmr-mobile #total').innerText(),/18 \/ 20/);assert.equal(await p.locator('#srmr-mobile #start').isDisabled(),false);
   console.log(`PASS ${engine}: empty official home -> real /onlive layout, 18/20 preserved`);await ctx.close();
+ }
+ // Scenario 1b: the official home has live cards, but all of them are already recorded.
+ // It must offer /onlive even when allRooms.length is nonzero (iPhone 10/20 stall).
+ {
+  const at=now-60000,state={period:key,done:[{slug:'room-one',startedAt:null,at,source:'timer'}],adjustment:9,queue:[],index:0,active:false,run:'',checkpoint:null,listUrl:'https://www.showroom-live.com/'};
+  const home='<h1>New30day</h1><ul><li><span class="onlivecard-time is-onlive">配信中</span><article class="onlivecard"><a class="onlivecard-link" href="/r/room-one">Room one</a></article></li></ul>';
+  const store=new Map([[`srmr_progress_v3_${key}`,state]]),ctx=await makeContext(store,home),p=await ctx.newPage();
+  await p.clock.install({time:new Date(now)});await p.goto('https://www.showroom-live.com/');const panel=p.locator('#srmr-mobile');await panel.waitFor();
+  assert.match(await panel.locator('#total').innerText(),/10 \\/ 20/);
+  assert.match(await panel.locator('#name').innerText(),/未記録 0ルーム \\/ 記録済み 1件/);
+  assert.equal(await panel.locator('#start').innerText(),'オンライブ一覧を開く ▶');
+  assert.equal(await panel.locator('#start').isDisabled(),false);
+  await panel.locator('#start').click();await p.waitForURL('https://www.showroom-live.com/onlive');
+  await p.locator('#srmr-mobile').waitFor();
+  assert.match(await p.locator('#srmr-mobile #total').innerText(),/10 \\/ 20/);
+  assert.match(await p.locator('#srmr-mobile #name').innerText(),/未記録 2ルーム/);
+  assert.equal(await p.locator('#srmr-mobile #start').isDisabled(),false);
+  assert.equal(store.get(`srmr_progress_v3_${key}`).done.length,1);
+  console.log(`PASS ${engine}: nonempty official home with zero eligible rooms -> /onlive, 10/20 preserved`);await ctx.close();
  }
  // Scenario 2: a recorded room opened outside an active queue must escape in one tap.
  {
