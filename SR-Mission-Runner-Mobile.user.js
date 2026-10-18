@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SR Mission Runner Mobile
 // @namespace    https://nao.qa/
-// @version      1.6.6
+// @version      1.6.7
 // @description  SHOWROOMの実再生時間を計測し、時間到達で端末へ自動記録して次の配信へ移動。公式回数は読取専用で常時連動。
 // @author       ackey + ChatGPT
 // @match        https://nao.qa/ap/*
@@ -17,7 +17,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "sr", "version": "1.6.6", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
+  const CONFIG = {"kind": "sr", "version": "1.6.7", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -410,6 +410,27 @@
     const roomHere = () => state.queue[state.index]?.slug === current?.slug ? state.queue[state.index] : { slug: current?.slug, startedAt: null };
     const blocked = r => isRecorded(r, [...history, ...state.done]);
     const blockedHere = () => !isList && blocked(roomHere());
+
+    // Detect an actual visible SHOWROOM player failure, not a chat message,
+    // a paused media element, or a generic disconnected tab.
+    function showroomStreamError(doc) {
+      if (CONFIG.kind !== 'sr') return false;
+      const signature = text => text.length < 1800 &&
+        /Server respond error data\.?\s*\(eg\.\s*stream not exist\)/i.test(text) &&
+        /Error Code\s*:\s*-2002\b/i.test(text);
+      const nodes = doc.querySelectorAll('.room-video-wrapper, .room-video, #live-video-player, [role="alert"], [role="dialog"], [class*="error"], [id*="error"], .tcplayer-error-message, .vjs-error-display');
+      return [...nodes].some(node => signature((node.textContent || '').replace(/\s+/g, ' ')) && visibleElement(node, doc));
+    }
+    let lastStreamErrorCheck = -Infinity, streamError = false;
+    function hasStreamError() {
+      if (isList || CONFIG.kind !== 'sr') return false;
+      const now = performance.now();
+      if (now - lastStreamErrorCheck > 700) {
+        lastStreamErrorCheck = now;
+        streamError = showroomStreamError(document);
+      }
+      return streamError;
+    }
     function resetTimer() {
       playRequest++; playWatch = false; playWait = 0;
       elapsed = activeHere() && state.checkpoint && recordKey(state.checkpoint) === recordKey(roomHere()) ? Math.min(state.checkpoint.elapsed, prefs.seconds * 1000) : 0;
@@ -444,7 +465,7 @@
       <details class="fold" id="linkBox"><summary>公式の回数に連動</summary><button id="linkToggle">公式連動を使う</button><select id="linkedMission" aria-label="連動する視聴ミッション" hidden></select><div class="note" id="linkHelp"></div></details>
       <div id="linkedStatus" class="note" role="status"></div><div id="accountWarning" class="warn" role="status"></div>
       <div class="sub name" id="name"></div><div class="time" id="time"></div><div class="status" id="status" role="status"></div>
-      <div class="row" id="playerControls"><button id="playMedia">▶ ミュートで配信を再生</button><button id="revealPlayer">公式画面を表示（パネルを退避）</button></div><div class="note" id="playFeedback" role="status"></div><div class="row" id="reloadControls"><button id="reloadPlayer">保存して配信を再読込</button></div><details class="fold" id="playbackDetails"><summary>再生の検出状況</summary><div class="note" id="playbackDiagnostic"></div><div class="note" id="playbackState"></div><div class="note" id="playbackEvents"></div></details>
+      <div class="row" id="playerControls"><button id="playMedia">▶ ミュートで配信を再生</button><button id="revealPlayer">公式画面を表示（パネルを退避）</button></div><div class="note" id="playFeedback" role="status"></div><div class="row" id="reloadControls"><button id="reloadPlayer">保存して配信を再読込</button><button id="skipError" hidden>記録せず次へ ▶</button></div><details class="fold" id="playbackDetails"><summary>再生の検出状況</summary><div class="note" id="playbackDiagnostic"></div><div class="note" id="playbackState"></div><div class="note" id="playbackEvents"></div></details>
       <div class="row" id="listControls"><select id="seconds" aria-label="視聴目安秒数"><option value="30">30秒</option><option value="32">32秒</option><option value="35">35秒</option></select><select id="target" aria-label="目標ルーム数"><option value="10">10件</option><option value="20">20件</option></select><button class="primary" id="start">続きから開始</button></div>
       <details id="reviewBox"><summary id="reviewSummary">取得未確認の視聴記録</summary><div class="note">過去の枠を含む記録です。今回の残り回数ではありません。公式で取得を確認してください。戻っても自動では再計上しません。最新300件を端末に保存します。</div><div id="reviewLinks"></div></details>
       <div class="row" id="autoControls"><button id="autoToggle">自動記録・次へ：ON</button></div><div class="note" id="autoStatus" role="status"></div>
@@ -655,7 +676,10 @@
       await GM.setValue(reviewKey, next); reviews = next;
     }
     function render() {
+      const streamFailure = hasStreamError();
       el('reloadControls').hidden = isList;
+      el('skipError').hidden = !streamFailure;
+      el('skipError').disabled = busy || boundaryStop;
       el('reloadPlayer').disabled = busy || boundaryStop;
       const count = countDone(state, prefs.target), left = routingRemaining(state);
       renderLinked(); renderReviews();
@@ -669,10 +693,10 @@
       el('listControls').hidden = !isList;
       el('watchControls').hidden = isList;
       el('pauseControls').hidden = isList;
-      el('playerControls').hidden = isList || ready || blockedHere() || stoppedRoom(document);
+      el('playerControls').hidden = isList || ready || blockedHere() || stoppedRoom(document) || streamFailure;
       el('revealPlayer').disabled = busy || boundaryStop;
       el('playMedia').disabled = busy || boundaryStop || paused;
-      el('playFeedback').hidden = isList || !playFeedback;
+      el('playFeedback').hidden = isList || streamFailure || !playFeedback;
       el('playFeedback').textContent = playFeedback;
       el('playbackDetails').hidden = isList;
       el('discover').hidden = isList;
@@ -702,14 +726,15 @@
         el('retry').disabled = busy || offline || boundaryStop;
         el('pause').disabled = busy || !activeHere();
         el('pause').textContent = paused ? '再開' : '一時停止';
-        el('status').textContent = offline ? 'この配信は終了しています。記録を増やさず、スキップか次の未記録へ進んでください。' : officialCount && !left ? '公式の目標に到達しました。未受取分は公式画面で受け取ってください。' : notice || (counted ? 'この配信は記録済み。計測・再計上せず、候補から外します。' : !activeHere() ? '計測を始めるか、一覧から続けてください。' : paused ? '一時停止中' : ready ? '公式側を確認してから、記録して次へ進んでください。' : playbackStatus || '映像・音声の再生進行中だけ計測。未再生・停止・画面外は数えません。');
-        if (prefs.autoNext && ready && activeHere() && !paused && !offline) {
+        el('status').textContent = streamFailure ? 'SHOWROOMの配信データを取得できません（エラー -2002）。配信終了とは断定できません。保存して再読込するか、記録せず次の候補へ進んでください。' : offline ? 'この配信は終了しています。記録を増やさず、スキップか次の未記録へ進んでください。' : officialCount && !left ? '公式の目標に到達しました。未受取分は公式画面で受け取ってください。' : notice || (counted ? 'この配信は記録済み。計測・再計上せず、候補から外します。' : !activeHere() ? '計測を始めるか、一覧から続けてください。' : paused ? '一時停止中' : ready ? '公式側を確認してから、記録して次へ進んでください。' : playbackStatus || '映像・音声の再生進行中だけ計測。未再生・停止・画面外は数えません。');
+        if (streamFailure) el('autoStatus').textContent = '配信エラー中は自動計測・自動移動を保留します。未視聴時間は加算されません。';
+        if (prefs.autoNext && ready && activeHere() && !paused && !offline && !streamFailure) {
           el('autoStatus').textContent = `視聴完了。公式取得は別確認。あと${Math.max(0, Math.ceil((5000 - graceElapsed) / 1000))}秒で保存して次へ。待つ場合は自動OFFを押してください。`;
         }
         el('favorite').textContent = favorites.some(r => r.slug === current.slug) ? '★ 保存済み' : '☆ あとで見る';
       }
       if (officialView) el('compact').textContent = playerView ? 'パネルを戻す' : '視聴完了・パネルを戻す';
-      if (playerView) el('status').textContent = paused ? '計測は一時停止中です。パネルを戻して再開してください。' : playbackStatus || '再生が進むと計測します。再生できない時はパネルを戻し「配信を再生」を押してください。';
+      if (playerView && !streamFailure) el('status').textContent = paused ? '計測は一時停止中です。パネルを戻して再開してください。' : playbackStatus || '再生が進むと計測します。再生できない時はパネルを戻し「配信を再生」を押してください。';
       el('adjust').disabled = busy; el('reset').disabled = busy;
     }
     async function rollover() {
@@ -790,7 +815,7 @@
     function canAutoAdvance() { return !busy && autoAllowed(false) && graceElapsed >= 5000; }
     // OFF/pause/hidden and explicit offline status are checked again before storage.
     function autoAllowed(skip = false) {
-      return alive() && prefs.autoNext && activeHere() && !paused && !document.hidden && !boundaryStop && periodAt(Date.now()).key === period.key &&
+      return alive() && !hasStreamError() && prefs.autoNext && activeHere() && !paused && !document.hidden && !boundaryStop && periodAt(Date.now()).key === period.key &&
         (skip ? stoppedRoom(document) && offlineElapsed >= 1500 : ready && !blockedHere() && !stoppedRoom(document));
     }
     function advanceRemaining(s, automatic) {
@@ -970,7 +995,7 @@
       location.reload();
     });
     el('revealPlayer').addEventListener('click', () => { if (!busy && !boundaryStop) showOfficial(true, true); });
-    bind('next', () => advance(stoppedRoom(document))); bind('skip', () => advance(true));
+    bind('next', () => advance(stoppedRoom(document))); bind('skip', () => advance(true)); bind('skipError', () => advance(true));
     bind('exclude', async () => {
       await remember(roomHere());
       notice = '取得済みとして候補から除外しました。件数は増やしていません。';
@@ -1010,6 +1035,7 @@
       if (periodAt(Date.now()).key !== period.key) { void run(async () => {}); return; }
       const now = performance.now(), wall = now - lastWall; lastWall = now;
       const offline = !isList && stoppedRoom(document);
+      if (hasStreamError()) { mediaSamples = new WeakMap(); playbackStatus = 'SHOWROOMエラー -2002。計測は停止中です。'; render(); return; }
       const eligible = activeHere() && prefs.autoNext && !paused && !busy && !document.hidden && !boundaryStop;
       const step = wall > 0 && wall <= 1500 ? Math.min(wall, 1000) : 0;
       offlineElapsed = eligible && offline ? offlineElapsed + step : 0;
