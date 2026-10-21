@@ -459,7 +459,8 @@
       [hidden]{display:none!important} summary{cursor:pointer;padding:8px 0;min-height:44px} details{margin-top:4px}
       .fav{display:flex;gap:6px;margin:6px 0}.fav a{color:#bee6ff;flex:1}.status{font-size:13px;min-height:20px;margin:4px 0}.warn{color:#ffdc9e}
       .compact .fold,.compact details,.compact .name,.compact .time{display:none}.box.compact{padding:8px 12px}
-      .official-view{padding:0!important;max-width:230px}.official-view>div:not(.top):not(#autoControls):not(#autoStatus),.official-view>details,.official-view .top strong{display:none!important}.official-view .top{gap:0}.official-view #compact{width:100%;min-height:44px}.official-view #autoToggle{font-size:12px;width:100%}
+      .official-view{padding:0!important;max-width:230px}.official-view>div,.official-view>details,.official-view .top strong{display:none!important}
+      .official-view>.top,.official-view>#autoControls,.official-view>#autoStatus{display:flex!important}.official-view .top{gap:0}.official-view #compact{width:100%;min-height:44px}.official-view #autoToggle{font-size:12px;width:100%}
       .official-view.player-view>#status{display:block!important;padding:0 8px;font-size:12px}.official-view.player-view>#autoStatus{display:none!important}
       .official-view.stream-error>#status,.official-view.stream-error>#reloadControls{display:flex!important;padding:8px;font-size:12px}
     </style><div class="box">
