@@ -820,9 +820,9 @@
     });
     function canAutoAdvance() { return !busy && autoAllowed(false) && graceElapsed >= 5000; }
     // OFF/pause/hidden and explicit offline status are checked again before storage.
-    function autoAllowed(skip = false) {
+    function autoAllowed(skip = false, checkRecorded = true) {
       return alive() && !hasStreamError() && prefs.autoNext && activeHere() && !paused && !document.hidden && !boundaryStop && periodAt(Date.now()).key === period.key &&
-        (skip ? stoppedRoom(document) && offlineElapsed >= 1500 : ready && !blockedHere() && !stoppedRoom(document));
+        (skip ? stoppedRoom(document) && offlineElapsed >= 1500 : ready && (!checkRecorded || !blockedHere()) && !stoppedRoom(document));
     }
     function advanceRemaining(s, automatic) {
       return automatic ? Math.min(routingRemaining(s), Math.max(0, prefs.target - countDone(s, prefs.target))) : routingRemaining(s);
@@ -873,8 +873,10 @@
         }
         if (!destination) s.active = false;
       }, true, () => prepareHistory(recordedRoom), () => reviewRecord ? saveReview(reviewRecord) : null,
+      // prepareHistory has provisionally excluded this room already. Recheck
+      // cancellation and player state, not our own pending exclusion marker.
       () => alive() && !document.hidden && !boundaryStop && periodAt(Date.now()).key === period.key &&
-        ((skip && !automatic) || !hasStreamError(true)) && (!automatic || autoAllowed(skip)));
+        ((skip && !automatic) || !hasStreamError(true)) && (!automatic || autoAllowed(skip, false)));
       if (!ok || periodAt(Date.now()).key !== period.key) return;
       await pending;
       if (periodAt(Date.now()).key !== period.key) { await rollover(); return; }
