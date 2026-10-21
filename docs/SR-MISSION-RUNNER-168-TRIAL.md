@@ -11,10 +11,10 @@
 
 ## 固定した更新元
 
-[v1.6.8スクリプトをSafariで開く](https://raw.githubusercontent.com/ackey1007fw-coder/ouen-archive/39a263dabe4c26b7c90c39bbe3619fe3fa791441/SR-Mission-Runner-Mobile.user.js)
+[v1.6.8スクリプトをSafariで開く](https://raw.githubusercontent.com/ackey1007fw-coder/ouen-archive/d675dfda9f15d122dc8c2dc5f1c2a775dd418248/SR-Mission-Runner-Mobile.user.js)
 
-- コードcommit: `39a263dabe4c26b7c90c39bbe3619fe3fa791441`
-- SHA-256: `2026a3e8089c079a863996c564c0e45792b8da5478201fe1a8328cbca80c4bb6`
+- コードcommit: `d675dfda9f15d122dc8c2dc5f1c2a775dd418248`
+- SHA-256: `6b0621daae9efbd3e4b6ab1e5467c224243c5a1a820501198976f3dfd9e5e431`
 - [PR #20の最新レビュー・CI・実機受入状態](https://github.com/ackey1007fw-coder/ouen-archive/pull/20)
 
 ## 更新する前
