@@ -34,7 +34,7 @@ async function fixture(t, width, options = {}) {
   const ctx = await browser.newContext({ viewport: { width, height: 844 }, isMobile: width < 500, hasTouch: width < 500, locale: 'ja-JP' });
   let fail = false, failAll = false, failKey = '', delay = false, blockedWrite = null, blockAll = false, blockedReview = null;
   const errors = [], requests = [], checks = [];
-  let blockedRead = null, readStarted = null, blockedHistory = null, historyStarted = null;
+  let blockedRead = null, readStarted = null, blockedHistory = null, historyStarted = null, blockedCompletion = null, completionStarted = null;
   await ctx.exposeBinding('get', async (_s, k, d) => { if (k === stateKey && blockedRead) { readStarted?.(); await blockedRead; } if (delay) await new Promise(r => setTimeout(r, 450)); return store.has(k) ? structuredClone(store.get(k)) : d; });
   await ctx.exposeBinding('set', async (_s, k, v) => {
     if (delay) await new Promise(r => setTimeout(r, 450));
@@ -43,6 +43,7 @@ async function fixture(t, width, options = {}) {
     if (k === stateKey && (v.done.length || blockAll) && blockedWrite) await blockedWrite;
     if (k === `${t.prefix}_watch_reviews` && blockedReview) await blockedReview;
     if (k === `${t.prefix}_broadcast_history` && blockedHistory) { historyStarted?.(); await blockedHistory; }
+    if (k === stateKey && v.done.length > (options.seed ? 1 : 0) && blockedCompletion) { completionStarted?.(); await blockedCompletion; }
     store.set(k, structuredClone(v));
   });
   await ctx.exposeBinding('del', (_s, k) => store.delete(k));
@@ -80,6 +81,7 @@ async function fixture(t, width, options = {}) {
   return { ctx, page, panel, part, tick, check, hidden, store, stateKey, errors, requests, checks,
     blockRead: () => { let release, entered; const started = new Promise(r => { entered = r; }); readStarted = entered; blockedRead = new Promise(r => { release = r; }); return { started, release: () => { blockedRead = null; readStarted = null; release(); } }; },
     blockHistory: () => { let release; const started = new Promise(r => { historyStarted = r; }); blockedHistory = new Promise(r => { release = r; }); return { started, release: () => { blockedHistory = null; historyStarted = null; release(); } }; },
+    blockCompletion: () => { let release; const started = new Promise(r => { completionStarted = r; }); blockedCompletion = new Promise(r => { release = r; }); return { started, release: () => { blockedCompletion = null; completionStarted = null; release(); } }; },
     blockReview: () => { let release; blockedReview = new Promise(r => { release = r; }); return () => { blockedReview = null; release(); }; },
     setFail: v => { fail = v; }, failKey: k => { failKey = k; }, failAny: () => { failAll = true; }, setDelay: v => { delay = v; }, block: (all = false) => { blockAll = all; let release; blockedWrite = new Promise(r => { release = r; }); return () => { blockedWrite = null; release(); }; } };
 }
@@ -176,7 +178,11 @@ try {
       });
     });
     await scenario(sr, width, 'sr-error-during-final-save', { complete: true, seed: true }, async f => {
-      const release = f.block(); await f.tick(6000); await setStreamError(f); release(); await f.tick();
+      const blocked = f.blockCompletion(); await f.tick(6000);
+      let timeout;
+      try { await Promise.race([blocked.started, new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('Completion write did not start')), 10000); })]); }
+      finally { clearTimeout(timeout); }
+      await setStreamError(f); blocked.release(); await f.tick();
       await f.check('an error after commit starts preserves a valid completion but stops automatic navigation', async () => {
         assert.equal(f.page.url(), sr.live('one')); assert.equal(f.store.get(f.stateKey).done.length, 2);
         assert.equal(f.store.get(`${sr.prefix}_watch_reviews`).length, 2);

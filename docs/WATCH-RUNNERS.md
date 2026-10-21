@@ -1,8 +1,8 @@
 # 視聴ヘルパー
 
-## 現行試用版 — 2026-10-10（SR v1.6.6 / Mixch v0.5.1）
+## 現行試用版 — 2026-10-21（SR v1.6.8 / Mixch v0.5.1）
 
-[v1.6.6のiPhone更新手順・試用版とmainの区別・検証結果](SR-MISSION-RUNNER-166-TRIAL.md)。既存スクリプトのファイル名と保存領域を維持して上書きし、件数リセットで更新しない。
+[v1.6.8の安全な同名更新・-2002復帰・実機受入手順](SR-MISSION-RUNNER-168-TRIAL.md)。既存スクリプトのファイル名と保存領域を維持して上書きし、件数リセットで更新しない。
 
 ### SHOWROOMトップで未記録候補が0件のとき（v1.6.6）
 
@@ -83,7 +83,7 @@
 
 ## 配布物と役割
 
-- `SR-Mission-Runner-Mobile.user.js` v1.6.6: iPhone Safari + Userscripts向け。SHOWROOMの実際の `/lite/{slug}` 配信を自分で視聴し、時間到達で端末へ記録し、次の候補へ移動する（OFFなら手動）。
+- `SR-Mission-Runner-Mobile.user.js` v1.6.8: iPhone Safari + Userscripts向け。SHOWROOMの実際の `/lite/{slug}` 配信を自分で視聴し、時間到達で端末へ記録し、次の候補へ移動する（OFFなら手動）。
 - `Mixch-Watch-Helper-Mobile.user.js` v0.5.1: ミクチャの公開 `/u/{id}/live` に対応した視聴補助β。**Safariでの視聴コイン付与と現行の獲得条件は未検証**。公式ミッション達成ツールとは呼ばない。
 - ポータルへの組込みではない。人物情報・子サイト・feedは変更せず、配布ページの説明と版番号のみ更新する。
 
