@@ -22,6 +22,7 @@ export const metadata: Metadata = {
 
 const features = [
   ["⏱️", "再生中だけカウント", "画面を見ていて、映像や音声が進んでいる時間だけを計測。"],
+  ["🛟", "再生エラー時も記録を守る", "SHOWROOMエラー -2002 を検知し、記録を増やさず次へ進むボタンを表示。"],
   ["➡️", "時間になったら次へ", "30・32・35秒の再生後、公式確認の猶予を経て記録・次へ。非配信は無加算でスキップ。"],
   ["🚫", "取得済みを候補外へ", "一度記録した配信を、同じ巡回で何度も開きにくくします。"],
   ["♡", "フォロー画面へ", "気になった配信者は公式プロフィールを別タブで開けます。"],
@@ -48,7 +49,7 @@ export default function MissionRunnerPage() {
         <div className={styles.actions}>
           <a className={styles.primary} href={srInstaller}>
             🚀 SHOWROOM版をインストール
-            <small>v1.6.5</small>
+            <small>v1.6.8</small>
           </a>
           <a className={styles.secondary} href={mixchInstaller}>
             🎬 ミクチャ版をインストール
@@ -56,7 +57,7 @@ export default function MissionRunnerPage() {
           </a>
         </div>
         <p className={styles.installNote}>
-          リンクはSafariで開き、Userscriptsの拡張画面から Install / re-install してください。
+          リンクはSafariで開き、Userscriptsの拡張画面から Install / re-install してください。更新時は同じ名前の既存スクリプトへ上書きしてください。
         </p>
       </section>
 
@@ -130,12 +131,12 @@ export default function MissionRunnerPage() {
 
       <section className={styles.section} aria-labelledby="status-title">
         <p className={styles.sectionKicker}>RELEASE STATUS</p>
-        <h2 id="status-title">現在の公開版</h2>
+        <h2 id="status-title">このページの配布版</h2>
         <div className={styles.releaseGrid}>
           <div>
             <strong>SHOWROOM</strong>
-            <span>v1.6.5</span>
-            <p>iPhone Safari向け。公開β。</p>
+            <span>v1.6.8</span>
+            <p>iPhone Safari向け。非公式の試用版。</p>
           </div>
           <div>
             <strong>ミクチャ</strong>

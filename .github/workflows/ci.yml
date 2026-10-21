@@ -39,5 +39,28 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Install test browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: SHOWROOM error recovery regression
+        run: pnpm test:sr-error
+        env:
+          RUNNER_TEST_ARTIFACTS: test-results/sr-error
+
+      - name: Existing SHOWROOM recording and navigation regression
+        run: node tools/watch-runners-auto.browser.mjs
+        env:
+          RUNNER_TEST_KIND: sr
+          RUNNER_AUTO_SKIP: sr-error
+          RUNNER_TEST_ARTIFACTS: test-results/sr-regression
+
+      - name: Upload error recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sr-error-recovery
+          path: test-results
+          if-no-files-found: ignore
+
       - name: Build
         run: pnpm build

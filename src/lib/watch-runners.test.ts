@@ -89,6 +89,28 @@ test('Mixch revalidates manual evidence after the last asynchronous precommit st
   assert.equal(ok, false); assert.deepEqual(persisted.done, []); assert.deepEqual(events, ['undo']);
 });
 
+test('SR shows -2002 only for a visible matching player error and offers no-credit recovery', () => {
+  const start = srCode.indexOf('    function showroomStreamError(doc) {');
+  const end = srCode.indexOf('    let lastStreamErrorCheck', start);
+  assert.ok(start >= 0 && end > start);
+  const detect = new Script("const CONFIG={kind:'sr'};const visibleElement=n=>n.visible;" +
+    srCode.slice(start, end) + '\nshowroomStreamError').runInNewContext() as
+    (doc: { querySelectorAll: () => { innerText: string; visible: boolean }[] }) => boolean;
+  const fixture = (text: string, visible = true) => ({
+    querySelectorAll: () => [{ innerText: text, visible }],
+  });
+  const error = 'Server respond error data.(eg. stream not exist) Error Code : -2002';
+  assert.equal(detect(fixture(error)), true);
+  assert.equal(detect(fixture(error, false)), false);
+  assert.equal(detect(fixture(error.replace('-2002', '-2003'))), false);
+  assert.equal(detect(fixture('Error Code : -2002')), false);
+  assert.equal(detect(fixture('配信が停止しています')), false);
+  assert.match(srCode, /<button id="skipError" hidden>記録せず次へ ▶<\/button>/);
+  assert.match(srCode, /bind\('skipError', \(\) => advance\(true\)\)/);
+  assert.match(srCode, /return alive\(\) && !hasStreamError\(\) && prefs\.autoNext/);
+  assert.match(srCode, /if \(hasStreamError\(\)\) \{ mediaSamples = new WeakMap\(\); playbackStatus/);
+});
+
 test('SR player discovery works without :has() and keeps the official container boundary', () => {
   const start = srCode.indexOf('    function playerMedia()');
   const end = srCode.indexOf("    el('playMedia').addEventListener", start);
@@ -237,7 +259,7 @@ test('both installers are self-contained and do not automate service actions', (
   assert.ok(manualPlay >= 0 && nextHandler > manualPlay);
   assert.doesNotMatch(srCode.slice(0, manualPlay) + srCode.slice(nextHandler),/\.play\(/);
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
-  assert.match(srCode,/@version\s+1\.6\.5/);
+  assert.match(srCode,/@version\s+1\.6\.8/);
 });
 
 test('standalone installers share parsing and state helpers; service-specific receipt UI is independent', () => {
