@@ -86,7 +86,9 @@ async function fixture(t, width, options = {}) {
     setFail: v => { fail = v; }, failKey: k => { failKey = k; }, failAny: () => { failAll = true; }, setDelay: v => { delay = v; }, block: (all = false) => { blockAll = all; let release; blockedWrite = new Promise(r => { release = r; }); return () => { blockedWrite = null; release(); }; } };
 }
 async function scenario(t, width, name, options, fn) {
+  if (process.env.RUNNER_TEST_KIND && t.kind !== process.env.RUNNER_TEST_KIND) return;
   if (process.env.RUNNER_AUTO_CASE && !name.startsWith(process.env.RUNNER_AUTO_CASE)) return;
+  if (process.env.RUNNER_AUTO_SKIP && name.startsWith(process.env.RUNNER_AUTO_SKIP)) return;
   const f = await fixture(t, width, options);
   try {
     await fn(f);

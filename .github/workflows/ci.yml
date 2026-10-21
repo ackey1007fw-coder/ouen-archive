@@ -47,12 +47,19 @@ jobs:
         env:
           RUNNER_TEST_ARTIFACTS: test-results/sr-error
 
+      - name: Existing SHOWROOM recording and navigation regression
+        run: node tools/watch-runners-auto.browser.mjs
+        env:
+          RUNNER_TEST_KIND: sr
+          RUNNER_AUTO_SKIP: sr-error
+          RUNNER_TEST_ARTIFACTS: test-results/sr-regression
+
       - name: Upload error recovery evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sr-error-recovery
-          path: test-results/sr-error
+          path: test-results
           if-no-files-found: ignore
 
       - name: Build
