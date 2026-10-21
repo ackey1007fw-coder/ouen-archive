@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SR Mission Runner Mobile
 // @namespace    https://nao.qa/
-// @version      1.6.7
+// @version      1.6.8
 // @description  SHOWROOMの実再生時間を計測し、時間到達で端末へ自動記録して次の配信へ移動。公式回数は読取専用で常時連動。
 // @author       ackey + ChatGPT
 // @match        https://nao.qa/ap/*
@@ -17,7 +17,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "sr", "version": "1.6.7", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
+  const CONFIG = {"kind": "sr", "version": "1.6.8", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -418,14 +418,16 @@
       const signature = text => text.length < 1800 &&
         /Server respond error data\.?\s*\(eg\.\s*stream not exist\)/i.test(text) &&
         /Error Code\s*:\s*-2002\b/i.test(text);
-      const nodes = doc.querySelectorAll('.room-video-wrapper, .room-video, #live-video-player, [role="alert"], [role="dialog"], [class*="error"], [id*="error"], .tcplayer-error-message, .vjs-error-display');
-      return [...nodes].some(node => signature((node.textContent || '').replace(/\s+/g, ' ')) && visibleElement(node, doc));
+      const nodes = doc.querySelectorAll('.room-video-wrapper, .room-video, #live-video-player, .tcplayer-error-message, .vjs-error-display');
+      // Generic alerts/dialogs can be chat. innerText excludes hidden stale
+      // error descendants of a visible player; textContent does not.
+      return [...nodes].some(node => visibleElement(node, doc) && signature((node.innerText || '').replace(/\s+/g, ' ')));
     }
     let lastStreamErrorCheck = -Infinity, streamError = false;
-    function hasStreamError() {
+    function hasStreamError(force = false) {
       if (isList || CONFIG.kind !== 'sr') return false;
       const now = performance.now();
-      if (now - lastStreamErrorCheck > 700) {
+      if (force || now - lastStreamErrorCheck > 700) {
         lastStreamErrorCheck = now;
         streamError = showroomStreamError(document);
       }
@@ -459,6 +461,7 @@
       .compact .fold,.compact details,.compact .name,.compact .time{display:none}.box.compact{padding:8px 12px}
       .official-view{padding:0!important;max-width:230px}.official-view>div:not(.top):not(#autoControls):not(#autoStatus),.official-view>details,.official-view .top strong{display:none!important}.official-view .top{gap:0}.official-view #compact{width:100%;min-height:44px}.official-view #autoToggle{font-size:12px;width:100%}
       .official-view.player-view>#status{display:block!important;padding:0 8px;font-size:12px}.official-view.player-view>#autoStatus{display:none!important}
+      .official-view.stream-error>#status,.official-view.stream-error>#reloadControls{display:flex!important;padding:8px;font-size:12px}
     </style><div class="box">
       <div class="top"><strong id="title"></strong><button id="compact" class="small">小さく</button></div>
       <div class="sub" id="source"></div><div class="sub" id="period"></div><div class="progress" id="total"></div>
@@ -677,6 +680,7 @@
     }
     function render() {
       const streamFailure = hasStreamError();
+      root.querySelector('.box').classList.toggle('stream-error', streamFailure);
       el('reloadControls').hidden = isList;
       el('skipError').hidden = !streamFailure;
       el('skipError').disabled = busy || boundaryStop;
@@ -703,7 +707,7 @@
       el('excludeControls').hidden = isList || CONFIG.kind !== 'sr';
       el('exclude').disabled = busy || blockedHere();
       el('time').hidden = isList;
-      el('autoToggle').textContent = `自動記録・次へ：${prefs.autoNext ? 'ON（押すと停止）' : 'OFF'}`;
+      el('autoToggle').textContent = `自動記録・次へ：${prefs.autoNext ? streamFailure ? 'ON（エラー中・保留）' : 'ON（押すと停止）' : 'OFF'}`;
       const timed = state.done.filter(r => r.source === 'timer').length;
       el('autoStatus').textContent = `${prefs.autoNext ? `${prefs.seconds}秒の再生後、5秒以内の公式確認を待って次へ。明確な非配信は無加算スキップ。` : '自動移動は停止中。'}時間到達の記録 ${timed}件（公式取得の確認とは別）`;
       if (isList) {
@@ -721,7 +725,7 @@
         el('time').textContent = counted ? '記録済み' : ready ? '目安到達' : String(Math.max(0, Math.ceil(prefs.seconds - elapsed / 1000)));
         const offline = stoppedRoom(document);
         el('next').textContent = offline ? '次の未記録へ ▶' : officialCount && !left ? (activeHere() && ready ? '記録して終了' : '公式の目標達成') : counted ? '次の未記録へ ▶' : !activeHere() ? 'この配信を計測' : ready ? '記録して次へ ▶' : '再生を確認中';
-        el('next').disabled = busy || boundaryStop || (!left && !activeHere()) || (!offline && activeHere() && !ready && !counted);
+        el('next').disabled = busy || boundaryStop || streamFailure || (!left && !activeHere()) || (!offline && activeHere() && !ready && !counted);
         el('skip').disabled = busy || boundaryStop;
         el('retry').disabled = busy || offline || boundaryStop;
         el('pause').disabled = busy || !activeHere();
@@ -749,7 +753,7 @@
       notice = boundaryStop ? '時間帯が切り替わりました。同じ配信の継続では再達成できません。一覧に戻り、別の配信へ進んでください。' : '時間帯が切り替わりました。新しい枠の記録に切り替えています。';
       render(); return true;
     }
-    function transact(fn, requireActive = false, beforeCommit = null, afterCommit = null) {
+    function transact(fn, requireActive = false, beforeCommit = null, afterCommit = null, canCommit = null) {
       const p = period, runId = state.run, expectedIndex = state.index;
       const work = pending.then(async () => {
         if (periodAt(Date.now()).key !== p.key) { await rollover(); return false; }
@@ -763,6 +767,7 @@
         history = await readHistory();
         if (await fn(latest) === false || !alive()) return false;
         const undo = beforeCommit ? await beforeCommit() : null;
+        if (canCommit && !canCommit()) { if (undo) await undo(); return false; }
         try { await GM.setValue(storageKey(p), latest); }
         catch (error) { if (undo) await undo(); throw error; }
         if (period.key === p.key) state = latest;
@@ -822,7 +827,7 @@
       return automatic ? Math.min(routingRemaining(s), Math.max(0, prefs.target - countDone(s, prefs.target))) : routingRemaining(s);
     }
     async function advance(skip, automatic = false) {
-      if (boundaryStop || (automatic && !autoAllowed(skip))) return;
+      if (boundaryStop || (!skip && hasStreamError(true)) || (automatic && !autoAllowed(skip))) return;
       if (!activeHere()) {
         const cache = await readListCache();
         if (skip || blockedHere()) {
@@ -866,11 +871,13 @@
           }
         }
         if (!destination) s.active = false;
-      }, true, () => prepareHistory(recordedRoom), () => reviewRecord ? saveReview(reviewRecord) : null);
+      }, true, () => prepareHistory(recordedRoom), () => reviewRecord ? saveReview(reviewRecord) : null,
+      () => alive() && !document.hidden && !boundaryStop && periodAt(Date.now()).key === period.key &&
+        ((skip && !automatic) || !hasStreamError(true)) && (!automatic || autoAllowed(skip)));
       if (!ok || periodAt(Date.now()).key !== period.key) return;
       await pending;
       if (periodAt(Date.now()).key !== period.key) { await rollover(); return; }
-      if (automatic && (!prefs.autoNext || paused || document.hidden || !alive() || (skip ? !stoppedRoom(document) : stoppedRoom(document)))) {
+      if ((automatic && (!prefs.autoNext || paused || document.hidden || !alive() || hasStreamError(true) || (skip ? !stoppedRoom(document) : stoppedRoom(document)))) || (!skip && hasStreamError(true))) {
         if (skip && alive()) {
           const committedIndex = state.index;
           const restored = await transact(s => {
@@ -879,7 +886,7 @@
           });
           ended = !restored; offlineElapsed = 0;
           notice = 'スキップを取り消しました。自動ONでこの候補から再開します。';
-        } else { ended = true; notice = '時間到達を記録しました。自動移動は停止しました。'; }
+        } else { ended = true; notice = '時間到達を記録しました。移動は停止しました。公式取得は別途確認してください。'; }
         return;
       }
       if (destination) navigate(destination);
@@ -1035,7 +1042,7 @@
       if (periodAt(Date.now()).key !== period.key) { void run(async () => {}); return; }
       const now = performance.now(), wall = now - lastWall; lastWall = now;
       const offline = !isList && stoppedRoom(document);
-      if (hasStreamError()) { mediaSamples = new WeakMap(); playbackStatus = 'SHOWROOMエラー -2002。計測は停止中です。'; render(); return; }
+      if (hasStreamError()) { mediaSamples = new WeakMap(); playbackStatus = 'SHOWROOMエラー -2002。計測は停止中です。'; graceElapsed = 0; offlineElapsed = 0; render(); return; }
       const eligible = activeHere() && prefs.autoNext && !paused && !busy && !document.hidden && !boundaryStop;
       const step = wall > 0 && wall <= 1500 ? Math.min(wall, 1000) : 0;
       offlineElapsed = eligible && offline ? offlineElapsed + step : 0;

@@ -4,7 +4,9 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repo = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const pw = await import(pathToFileURL(join(process.env.PLAYWRIGHT_MODULE_ROOT, 'playwright/index.mjs')));
+const pw = process.env.PLAYWRIGHT_MODULE_ROOT
+  ? await import(pathToFileURL(join(process.env.PLAYWRIGHT_MODULE_ROOT, 'playwright/index.mjs')))
+  : await import('playwright');
 const engine = process.env.RUNNER_TEST_ENGINE || 'chromium';
 const output = process.env.RUNNER_TEST_ARTIFACTS || '/tmp/watch-runners-auto';
 await mkdir(output, { recursive: true });
@@ -22,13 +24,17 @@ async function fixture(t, width, options = {}) {
   const store = new Map();
   const stateKey = `${t.prefix}_${t.key}`;
   if (options.manual) store.set(`${t.prefix}_prefs`, { seconds: 32, target: 20, autoNext: false });
+  if (options.seed) {
+    store.set(`${t.prefix}_prefs`, { seconds: 32, target: 20, autoNext: !options.manual });
+    store.set(`${t.prefix}_favorites`, [{ slug: 'favorite', name: 'Favorite', roomId: '', startedAt: null }]);
+  }
   store.set(stateKey, { period: t.key, done: options.seed ? [{slug:t.slugs[2],at:now-1000,source:'timer'}] : [], adjustment: options.adjustment || 0,
     queue: t.slugs.map(slug => ({ slug, roomId: options.official ? '123456' : '' })), index: 0, active: true, run: 'fixture',
     checkpoint: options.complete ? { slug: t.slugs[0], elapsed: 32000, hold: false } : null, listUrl: t.home });
   const ctx = await browser.newContext({ viewport: { width, height: 844 }, isMobile: width < 500, hasTouch: width < 500, locale: 'ja-JP' });
   let fail = false, failAll = false, failKey = '', delay = false, blockedWrite = null, blockAll = false, blockedReview = null;
   const errors = [], requests = [], checks = [];
-  let blockedRead = null, readStarted = null;
+  let blockedRead = null, readStarted = null, blockedHistory = null, historyStarted = null;
   await ctx.exposeBinding('get', async (_s, k, d) => { if (k === stateKey && blockedRead) { readStarted?.(); await blockedRead; } if (delay) await new Promise(r => setTimeout(r, 450)); return store.has(k) ? structuredClone(store.get(k)) : d; });
   await ctx.exposeBinding('set', async (_s, k, v) => {
     if (delay) await new Promise(r => setTimeout(r, 450));
@@ -36,6 +42,7 @@ async function fixture(t, width, options = {}) {
     if (k === stateKey && (v.done.length && fail || failAll)) throw new Error('Fixture storage denial');
     if (k === stateKey && (v.done.length || blockAll) && blockedWrite) await blockedWrite;
     if (k === `${t.prefix}_watch_reviews` && blockedReview) await blockedReview;
+    if (k === `${t.prefix}_broadcast_history` && blockedHistory) { historyStarted?.(); await blockedHistory; }
     store.set(k, structuredClone(v));
   });
   await ctx.exposeBinding('del', (_s, k) => store.delete(k));
@@ -60,7 +67,7 @@ async function fixture(t, width, options = {}) {
       return;
     }
     const list = u.pathname === '/' || u.pathname === '/onlive';
-    const body = list ? t.slugs.map(slug => t.kind === 'mx' ? `<a href="${t.live(slug)}">${slug}</a>` : `<ul><li><article class="onlivecard"><a class="ga-onlive-click" href="/r/${slug}">${slug}</a></article><div class="onlivecard-time is-onlive">LIVE</div></li></ul>`).join('') : '<h1>Fixture</h1><div class="room-video-wrapper"><video id="frozen"></video><video id="playing"></video></div><button id="reward">公式GET</button>';
+    const body = list ? t.slugs.map(slug => t.kind === 'mx' ? `<a href="${t.live(slug)}">${slug}</a>` : `<ul><li><article class="onlivecard"><a class="ga-onlive-click" href="/r/${slug}">${slug}</a></article><div class="onlivecard-time is-onlive">LIVE</div></li></ul>`).join('') : `<h1>Fixture</h1><div class="room-video-wrapper"><video id="frozen"></video><video id="playing"></video>${options.playerError ? '<div class="vjs-error-display">Server respond error data.(eg. stream not exist) Error Code : -2002</div>' : ''}</div><button id="reward">公式GET</button>`;
     await route.fulfill({ contentType: 'text/html; charset=utf-8', body: `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${body}</body></html>` });
   });
   const page = await ctx.newPage(); page.on('pageerror', e => errors.push(e.message));
@@ -72,11 +79,12 @@ async function fixture(t, width, options = {}) {
   await page.goto(t.live(t.slugs[0])); await panel().waitFor();
   return { ctx, page, panel, part, tick, check, hidden, store, stateKey, errors, requests, checks,
     blockRead: () => { let release, entered; const started = new Promise(r => { entered = r; }); readStarted = entered; blockedRead = new Promise(r => { release = r; }); return { started, release: () => { blockedRead = null; readStarted = null; release(); } }; },
+    blockHistory: () => { let release; const started = new Promise(r => { historyStarted = r; }); blockedHistory = new Promise(r => { release = r; }); return { started, release: () => { blockedHistory = null; historyStarted = null; release(); } }; },
     blockReview: () => { let release; blockedReview = new Promise(r => { release = r; }); return () => { blockedReview = null; release(); }; },
     setFail: v => { fail = v; }, failKey: k => { failKey = k; }, failAny: () => { failAll = true; }, setDelay: v => { delay = v; }, block: (all = false) => { blockAll = all; let release; blockedWrite = new Promise(r => { release = r; }); return () => { blockedWrite = null; release(); }; } };
 }
 async function scenario(t, width, name, options, fn) {
-  if (process.env.RUNNER_AUTO_CASE && process.env.RUNNER_AUTO_CASE !== name) return;
+  if (process.env.RUNNER_AUTO_CASE && !name.startsWith(process.env.RUNNER_AUTO_CASE)) return;
   const f = await fixture(t, width, options);
   try {
     await fn(f);
@@ -88,6 +96,93 @@ async function scenario(t, width, name, options, fn) {
   finally { await f.ctx.close(); }
 }
 try {
+  const sr = targets.find(t => t.kind === 'sr');
+  const setStreamError = async (f, placement = 'player', code = '-2002') => f.page.evaluate(({ placement, code }) => {
+    const n = document.createElement('div'); n.id = 'fixture-error';
+    n.setAttribute('role', 'alert'); n.className = 'fixture-error';
+    n.textContent = `Server respond error data.(eg. stream not exist) Error Code : ${code}`;
+    n.hidden = placement === 'hidden';
+    (placement === 'chat' ? document.body : document.querySelector('.room-video-wrapper')).append(n);
+  }, { placement, code });
+  const records = f => structuredClone({
+    done: f.store.get(f.stateKey).done, adjustment: f.store.get(f.stateKey).adjustment,
+    history: f.store.get(`${sr.prefix}_broadcast_history`), reviews: f.store.get(`${sr.prefix}_watch_reviews`),
+    favorites: f.store.get(`${sr.prefix}_favorites`), prefs: f.store.get(`${sr.prefix}_prefs`),
+  });
+  for (const width of [390, 430, 1280]) {
+    await scenario(sr, width, 'sr-error-retreated-controls', { seed: true }, async f => {
+      await f.part('revealPlayer').click(); await setStreamError(f); await f.tick(2000);
+      await f.check('retreated panel keeps error status, reload, no-credit skip and OFF reachable', async () => {
+        for (const id of ['status', 'reloadPlayer', 'skipError', 'autoToggle']) assert.equal(await f.part(id).isVisible(), true, id);
+        assert.match(await f.part('status').innerText(), /-2002/);
+        assert.match(await f.part('autoToggle').innerText(), /保留/);
+        for (const id of ['reloadPlayer', 'skipError']) {
+          const box = await f.part(id).boundingBox(); assert.ok(box.height >= 44 && box.x >= 0 && box.x + box.width <= width);
+        }
+      });
+      await f.page.screenshot({ path: join(output, `sr-error-controls-${width}.png`) });
+    });
+    await scenario(sr, width, 'sr-error-ready-manual', { complete: true, manual: true, seed: true }, async f => {
+      await setStreamError(f); await f.tick(2000);
+      await f.check('an error disables a ready manual completion instead of recording it', async () => {
+        assert.equal(await f.part('next').isDisabled(), true);
+        // Programmatic activation checks the handler guard too, not just the button.
+        await f.part('next').evaluate(n => { n.disabled = false; n.click(); }); await f.tick();
+        assert.equal(f.store.get(f.stateKey).done.length, 1); assert.equal(f.page.url(), sr.live('one'));
+      });
+    });
+    await scenario(sr, width, 'sr-error-no-auto-credit', { playerError: true, seed: true }, async f => {
+      const before = records(f); await f.page.evaluate(() => { window.playing = true; }); await f.tick(40000);
+      await f.check('progressing mock media under a player error cannot count or navigate', async () => {
+        assert.equal(await f.part('time').innerText(), '32'); assert.equal(f.page.url(), sr.live('one')); assert.deepEqual(records(f), before);
+      });
+      await f.page.evaluate(() => document.querySelector('.vjs-error-display').remove()); await f.tick(6000);
+      await f.check('after the official error disappears real media progress resumes', async () => {
+        assert.ok(Number(await f.part('time').innerText()) < 30); assert.equal(await f.part('skipError').isVisible(), false);
+      });
+    });
+    for (const placement of ['chat', 'hidden', 'other-code']) await scenario(sr, width, `sr-error-ignore-${placement}`, {}, async f => {
+      await setStreamError(f, placement === 'other-code' ? 'player' : placement, placement === 'other-code' ? '-2003' : '-2002');
+      await f.page.evaluate(() => { window.playing = true; }); await f.tick(4000);
+      await f.check('chat text, hidden descendants and other codes do not identify this player failure', async () => {
+        assert.equal(await f.part('skipError').isVisible(), false); assert.ok(Number(await f.part('time').innerText()) < 31);
+      });
+    });
+    await scenario(sr, width, 'sr-error-skip-preserves', { playerError: true, seed: true }, async f => {
+      await f.tick(); const before = records(f);
+      await f.part('skipError').click(); await f.page.waitForURL(sr.live('two')); await f.panel().waitFor(); await f.tick();
+      await f.check('no-credit skip advances once and preserves records, exclusions, review ledger and settings', async () => {
+        assert.deepEqual(records(f), before); assert.equal(f.store.get(f.stateKey).index, 1);
+      });
+      await f.part('skipError').click(); await f.page.waitForURL(sr.home); await f.panel().waitFor(); await f.tick(40000);
+      await f.check('repeated player failures exhaust the queue without a loop or a false completion', async () => {
+        assert.deepEqual(records(f), before); assert.equal(f.store.get(f.stateKey).active, false); assert.equal(f.page.url(), sr.home);
+      });
+    });
+    await scenario(sr, width, 'sr-error-reload-preserves', { playerError: true, seed: true }, async f => {
+      await f.tick(); const before = records(f), navigations = () => f.requests.filter(r => r.url === sr.live('one')).length;
+      const first = navigations(); f.failKey(f.stateKey); await f.part('reloadPlayer').click(); await f.tick();
+      await f.check('a denied checkpoint prevents reload and preserves existing records', async () => { assert.equal(navigations(), first); assert.deepEqual(records(f), before); });
+      f.failKey(''); await f.part('reloadPlayer').click();
+      await f.page.waitForFunction(() => window.GM && document.querySelector('#srmr-mobile'));
+      await f.tick();
+      await f.check('a successful checkpoint reloads once with the same history and preferences', async () => { assert.equal(navigations(), first + 1); assert.deepEqual(records(f), before); });
+    });
+    await scenario(sr, width, 'sr-error-during-history-save', { complete: true, manual: true, seed: true }, async f => {
+      const before = records(f), blocked = f.blockHistory();
+      await f.part('next').click(); await blocked.started; await setStreamError(f); blocked.release(); await f.tick();
+      await f.check('an error during asynchronous precommit undoes only its new exclusion and cancels completion', async () => {
+        assert.equal(f.page.url(), sr.live('one')); assert.deepEqual(records(f), before);
+      });
+    });
+    await scenario(sr, width, 'sr-error-during-final-save', { complete: true, seed: true }, async f => {
+      const release = f.block(); await f.tick(6000); await setStreamError(f); release(); await f.tick();
+      await f.check('an error after commit starts preserves a valid completion but stops automatic navigation', async () => {
+        assert.equal(f.page.url(), sr.live('one')); assert.equal(f.store.get(f.stateKey).done.length, 2);
+        assert.equal(f.store.get(`${sr.prefix}_watch_reviews`).length, 2);
+      });
+    });
+  }
   const mx = targets.find(t => t.kind === 'mx');
   for (const width of [390, 430, 1280]) {
     for (const mode of ['insert', 'change']) await scenario(mx, width, `background-notice-${mode}`, { manual: true }, async f => {

@@ -95,9 +95,9 @@ test('SR shows -2002 only for a visible matching player error and offers no-cred
   assert.ok(start >= 0 && end > start);
   const detect = new Script("const CONFIG={kind:'sr'};const visibleElement=n=>n.visible;" +
     srCode.slice(start, end) + '\nshowroomStreamError').runInNewContext() as
-    (doc: { querySelectorAll: () => { textContent: string; visible: boolean }[] }) => boolean;
+    (doc: { querySelectorAll: () => { innerText: string; visible: boolean }[] }) => boolean;
   const fixture = (text: string, visible = true) => ({
-    querySelectorAll: () => [{ textContent: text, visible }],
+    querySelectorAll: () => [{ innerText: text, visible }],
   });
   const error = 'Server respond error data.(eg. stream not exist) Error Code : -2002';
   assert.equal(detect(fixture(error)), true);
@@ -259,7 +259,7 @@ test('both installers are self-contained and do not automate service actions', (
   assert.ok(manualPlay >= 0 && nextHandler > manualPlay);
   assert.doesNotMatch(srCode.slice(0, manualPlay) + srCode.slice(nextHandler),/\.play\(/);
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
-  assert.match(srCode,/@version\s+1\.6\.7/);
+  assert.match(srCode,/@version\s+1\.6\.8/);
 });
 
 test('standalone installers share parsing and state helpers; service-specific receipt UI is independent', () => {
