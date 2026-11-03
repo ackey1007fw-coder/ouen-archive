@@ -31,6 +31,7 @@ type Runner = {
   adjustCount: (state: State, n: number) => void;
   migrateLegacy: (raw: unknown, period: Period) => State;
   timerDelta: (wall: number, media: number, visible: boolean, playing: boolean) => number;
+  mediaEvidence: (media: {tagName: string; currentTime: number; readyState: number; paused: boolean; ended: boolean; error: unknown; videoWidth?: number; videoHeight?: number}, previous: number | undefined, wall: number, visible: boolean) => {type:string;currentTime:number|null;playing:boolean;advanced:boolean;delta:number;audioOnly:boolean};
 };
 const read = (name: string) => readFileSync(new URL(`../../${name}`, import.meta.url), 'utf8');
 const srCode = read('SR-Mission-Runner-Mobile.user.js');
@@ -393,4 +394,39 @@ test('review ledger keeps completion separate from reward proof and rejects fabr
     assert.equal(runner.normalizeReviews([null, {...record,period:'wrong'}, {...record,source:'legacy'}, {...record,at:Infinity}, {...record,slug:'../bad'}]).length,0);
     assert.equal(runner.normalizeReviews({malformed:true}).length,0);
   }
+});
+
+test('SR radio audio and audio-only HLS video credit only real visible forward playback', () => {
+  const audio = {tagName:'AUDIO',currentTime:4.25,paused:false,ended:false,error:null,readyState:4};
+  const audioActive = sr.mediaEvidence(audio,4,250,true);
+  assert.equal(audioActive.type,'audio'); assert.equal(audioActive.audioOnly,true);
+  assert.equal(audioActive.delta,250); assert.equal(audioActive.advanced,true);
+  assert.equal(sr.mediaEvidence({...audio,paused:true},4,250,true).delta,0);
+  assert.equal(sr.mediaEvidence({...audio,readyState:1},4,250,true).delta,0);
+  assert.equal(sr.mediaEvidence(audio,4,250,false).delta,0);
+  assert.equal(sr.mediaEvidence({...audio,currentTime:12},4,250,true).delta,0,'HLS seeks and jumps cannot credit viewing');
+  assert.equal(sr.mediaEvidence(audio,undefined,250,true).delta,0,'First sample must not count');
+  const hls = {tagName:'VIDEO',currentTime:6.25,paused:false,ended:false,error:null,readyState:3,videoWidth:0,videoHeight:0};
+  assert.equal(sr.mediaEvidence(hls,6,250,true).delta,250);
+  assert.equal(sr.mediaEvidence(hls,6,250,true).audioOnly,true);
+  const video = {...hls,videoWidth:1280,videoHeight:720};
+  assert.equal(sr.mediaEvidence(video,6,250,true).delta,250,'Existing video path still credits actual progress');
+  assert.equal(sr.mediaEvidence(video,6,250,true).audioOnly,false);
+});
+
+test('SR reviews retain historic 300, cap at 1000 and dedupe verified status', () => {
+  const base = Date.parse('2026-09-11T05:00:00+09:00');
+  const period = sr.periodAt(base).key;
+  const records = Array.from({length:1100},(_,i)=>({slug:'room'+i,period,at:base+i*1000,source:'timer'}));
+  assert.equal(sr.normalizeReviews(records.slice(0,300)).length,300);
+  const capped = sr.normalizeReviews(records);
+  assert.equal(capped.length,1000);
+  assert.equal(capped[0].slug,'room100');
+  const upgraded = sr.normalizeReviews([...capped,{...records[1000],reward:'manual'},records[1000]]);
+  assert.equal(upgraded.length,1000);
+  assert.equal(upgraded.find(r=>r.slug==='room1000')?.reward,'manual');
+  const mixed = sr.normalizeReviews([...records.slice(0,1000),...records.slice(1000).map(r=>({...r,reward:'manual'}))]);
+  assert.equal(mixed.length,1000);
+  assert.equal(mixed.some(r=>r.slug==='room0'),true,'Unresolved history takes priority');
+  assert.equal(mixed.some(r=>r.slug==='room1099'),false);
 });
