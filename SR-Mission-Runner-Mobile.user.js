@@ -198,6 +198,18 @@
       ? Math.min(wall, mediaDelta * 1000, 1000) : 0;
   }
 
+  // A video element can carry an audio-only HLS stream; neither dimensions nor
+  // a rendered frame are required for credit. Only forward media time counts.
+  function mediaEvidence(media, previousTime, wall, visible) {
+    const type = media?.tagName === 'AUDIO' ? 'audio' : media?.tagName === 'VIDEO' ? 'video' : 'unknown';
+    const currentTime = Number.isFinite(media?.currentTime) && media.currentTime >= 0 ? media.currentTime : null;
+    const playing = type !== 'unknown' && !media.paused && !media.ended && !media.error && media.readyState >= 2;
+    const advanced = playing && currentTime !== null && Number.isFinite(previousTime) && currentTime > previousTime;
+    const delta = advanced ? timerDelta(wall, currentTime - previousTime, visible, playing) : 0;
+    const audioOnly = type === 'audio' || (type === 'video' && playing && media.videoWidth === 0 && media.videoHeight === 0);
+    return { type, currentTime, playing, advanced, delta, audioOnly };
+  }
+
   const validRoomId = n => /^[1-9][0-9]{0,11}$/.test(String(n || '')) ? String(n) : '';
   function missionReadUrl(pageUrl, roomId) {
     if (CONFIG.kind !== 'sr' || !validRoomId(roomId)) return '';
@@ -282,6 +294,8 @@
       ? n.textContent.trim() === '配信停止中'
       : /^(?:現在配信していません|ライブが終了しています)[。！!]?$/.test(n.textContent.trim())));
   }
+  const REVIEW_LIMIT = 1000;
+  const REVIEW_PAGE_SIZE = 20;
   function normalizeReviews(value) {
     const result = new Map(), rank = { unconfirmed: 0, manual: 1, official: 2 };
     for (const r of Array.isArray(value) ? value : []) {
@@ -293,11 +307,17 @@
       result.set(key, { slug: r.slug, startedAt, period: r.period, at: previous?.at || r.at, source: previous?.source || r.source,
         reward: previous && rank[previous.reward] > rank[reward] ? previous.reward : reward });
     }
-    return [...result.values()].sort((a, b) => a.at - b.at).slice(-300);
+    // Keep unconfirmed receipts preferentially. The old 300-item rolling
+    // window could silently evict unresolved records during long-term use.
+    const ordered = [...result.values()].sort((a, b) => a.at - b.at);
+    const unresolved = ordered.filter(r => r.reward === 'unconfirmed').slice(-REVIEW_LIMIT);
+    const confirmedSlots = REVIEW_LIMIT - unresolved.length;
+    const confirmed = confirmedSlots ? ordered.filter(r => r.reward !== 'unconfirmed').slice(-confirmedSlots) : [];
+    return [...confirmed, ...unresolved].sort((a, b) => a.at - b.at);
   }
   const officialAdsUrl = 'https://www.showroom-live.com/lottery/ad_reward';
 
-  const api = { normalizeReviews, stoppedRoom, hydrationRoomId, showroomLoggedOutHint, officialOnliveFallback, repeatedMissionCount, mixchBonusProgress, freshLinkedSnapshot, isAdPage, officialMissionSummary, missionReadUrl, listSource, returnListUrl, officialRooms, parseStartedAt, normalizeHistory, isRecorded, recordKey, periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, roomsOnly };
+  const api = { normalizeReviews, stoppedRoom, hydrationRoomId, showroomLoggedOutHint, officialOnliveFallback, repeatedMissionCount, mixchBonusProgress, freshLinkedSnapshot, isAdPage, officialMissionSummary, missionReadUrl, listSource, returnListUrl, officialRooms, parseStartedAt, normalizeHistory, isRecorded, recordKey, periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, mediaEvidence, roomsOnly };
   if (typeof document === 'undefined') {
     if (typeof module !== 'undefined') module.exports = api;
     return;
@@ -471,7 +491,11 @@
       <div class="sub name" id="name"></div><div class="time" id="time"></div><div class="status" id="status" role="status"></div>
       <div class="row" id="playerControls"><button id="playMedia">▶ ミュートで配信を再生</button><button id="revealPlayer">公式画面を表示（パネルを退避）</button></div><div class="note" id="playFeedback" role="status"></div><div class="row" id="reloadControls"><button id="reloadPlayer">保存して配信を再読込</button><button id="skipError" hidden>記録せず次へ ▶</button></div><details class="fold" id="playbackDetails"><summary>再生の検出状況</summary><div class="note" id="playbackDiagnostic"></div><div class="note" id="playbackState"></div><div class="note" id="playbackEvents"></div></details>
       <div class="row" id="listControls"><select id="seconds" aria-label="視聴目安秒数"><option value="30">30秒</option><option value="32">32秒</option><option value="35">35秒</option></select><select id="target" aria-label="目標ルーム数"><option value="10">10件</option><option value="20">20件</option></select><button class="primary" id="start">続きから開始</button></div>
-      <details id="reviewBox"><summary id="reviewSummary">取得未確認の視聴記録</summary><div class="note">過去の枠を含む記録です。今回の残り回数ではありません。公式で取得を確認してください。戻っても自動では再計上しません。最新300件を端末に保存します。</div><div id="reviewLinks"></div></details>
+      <details id="reviewBox"><summary id="reviewSummary">取得未確認の視聴記録</summary>
+        <div class="note" id="reviewHelp">過去枠を含む端末の視聴メモです。公式への再送待ちではありません。確認できた記録だけ手動で確認済みにできます。</div>
+        <div class="row"><button id="exportReviews">台帳をJSON保存</button></div>
+        <div id="reviewLinks"></div><div class="row"><button id="reviewMore" hidden>過去の20件をさらに表示</button></div>
+      </details>
       <div class="row" id="autoControls"><button id="autoToggle">自動記録・次へ：ON</button></div><div class="note" id="autoStatus" role="status"></div>
       <div class="row" id="watchControls"><button class="primary" id="next" disabled>記録して次へ</button><button id="skip">スキップ</button></div>
       <div class="row fold" id="discover"><a class="action" id="follow" target="_blank" rel="noopener noreferrer">♡ フォロー画面</a><button id="favorite">☆ あとで見る</button></div><div class="row fold" id="excludeControls"><button id="exclude">取得済みなので除外</button></div>
@@ -647,14 +671,16 @@
       render();
     });
 
-    let renderedReviews = '';
+    let renderedReviews = '', reviewVisibleCount = REVIEW_PAGE_SIZE;
     function renderReviews() {
       const pendingReviews = reviews.filter(r => r.reward === 'unconfirmed');
-      el('reviewSummary').textContent = `取得未確認の視聴記録 ${pendingReviews.length}件`;
-      const signature = JSON.stringify(pendingReviews);
+      el('reviewSummary').textContent = `取得未確認の視聴記録 ${pendingReviews.length}件（端末メモ）`;
+      el('reviewHelp').textContent = `公式に自動再送する項目はありません。過去枠を含む個別記録です。直近${Math.min(reviewVisibleCount, pendingReviews.length)}件を表示。保存上限${REVIEW_LIMIT}件（未確認優先）。${reviews.length >= REVIEW_LIMIT ? '上限に達しました。JSONを保存して確認済み記録を整理してください。' : '公式の受取状況は本人が確認してください。'}`;
+      el('reviewMore').hidden = pendingReviews.length <= reviewVisibleCount;
+      const signature = JSON.stringify(pendingReviews) + ':' + reviewVisibleCount;
       if (signature === renderedReviews) return;
       renderedReviews = signature; el('reviewLinks').replaceChildren();
-      for (const r of pendingReviews.slice().reverse()) {
+      for (const r of pendingReviews.slice(-reviewVisibleCount).reverse()) {
         const a = document.createElement('a'); a.className = 'action'; a.style.display = 'block'; a.style.marginTop = '6px';
         a.href = liveUrl(r.slug); a.target = '_blank'; a.rel = 'noopener noreferrer';
         a.textContent = `${r.slug} — ${new Date(r.at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })} 公式で確認 ↗`;
@@ -667,6 +693,18 @@
         row.append(a, confirm); el('reviewLinks').append(row);
       }
     }
+    el('reviewMore').addEventListener('click', () => {
+      reviewVisibleCount = Math.min(REVIEW_LIMIT, reviewVisibleCount + REVIEW_PAGE_SIZE);
+      renderReviews();
+    });
+    // Explicit local backup; never transmit this personal viewing history.
+    el('exportReviews').addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify({ schema: 'srmr-watch-reviews-v1', exportedAt: new Date().toISOString(), reviews }, null, 2)], { type: 'application/json' });
+      const href = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = href; a.download = `srmr-watch-reviews-${new Date().toISOString().slice(0, 10)}.json`;
+      a.style.display = 'none'; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 60000);
+    });
     async function saveReview(record) {
       const raw = await GM.getValue(reviewKey, []);
       const next = normalizeReviews([...(Array.isArray(raw) ? raw : []), record]);
@@ -978,7 +1016,7 @@
         playWatch = error?.name === 'AbortError';
         el('playbackDetails').open = true;
         playFeedback = error?.name === 'AbortError' ? '再生要求が中断されました（AbortError）。公式プレイヤーの復帰を8秒間確認します。進まなければ「保存して配信を再読込」を押してください。'
-          : error?.name === 'NotAllowedError' ? 'Safariが再生を許可しませんでした。公式画面を表示してミュート解除を押すか、ページを再読込してください。'
+          : error?.name === 'NotAllowedError' ? 'Safariが再生を許可しませんでした。画面表示中に公式の再生を直接タップするか、ページを再読込してください。自動再試行はしません。'
           : error?.name === 'NotSupportedError' ? '配信データを再生できませんでした。公式画面の読込を確認し、ページを再読込してください。'
           : `再生を開始できませんでした（${cleanName(error?.name || '不明')}）。再生の検出状況を確認してください。`;
         render();
