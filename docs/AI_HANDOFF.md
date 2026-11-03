@@ -1,10 +1,18 @@
 # AI HANDOFF — 応援アーカイブ
 
-Last updated: 2026-10-21 JST
+Last updated: 2026-11-04 JST
 
 この文書は、ChatGPT / Claude Code / Codex / Grok など別のAIや別チャットが、過去の会話を読めなくても現在地点から作業を再開できるようにするための「現在のセーブデータ」です。
 
 > このrepositoryは公開です。個人的なDM、恋愛・人間関係の推測、住所、連絡先、家族情報、資格情報、トークンなど、プロジェクトに不要な私的情報は絶対に記録しないでください。
+
+## 2026-11-04 — SR v1.6.8 ラジオ配信の再生判定追補（追加Draft）
+
+- 11/4のiPhone Safariでラジオ部屋だけ残秒32から進まない報告。従来の実装もaudioを探しvideoWidthを計測条件に使っていなかったので、根因は未特定。最小の新branch `fix/sr-radio-replay-v168-20261104` は#20 head `d0107ca`を起点とし、#20を直接編集しない。
+- ラジオ固有playerホスト、公式room-block内の単一audioへの限定fallback、video要素を用いた音声のみHLSの計測、映像有無と独立したcurrentTime・paused・readyState判定を追加。radio/video表示と各メディア値をローカル診断へ。NotAllowedErrorは明示タップでのみ復帰、自動再生や公式受取操作を追加しない。-2002、保存・OFF・背景化の旧guardは継承する。
+- 「取得未確認300件」は公式への送信キューではなくローカルの確認台帳。期間＋配信の重複排除、確認済みの優先度を維持し、保存上限1000件へ拡張（未確認を優先）、20件段階表示、個人端末への手動JSON書出し。既存300件を消去・リセットしない。過去に300件の上限で消えた記録は復元しない。
+- 元コードの `@name`/`@namespace`/`@version`=1.6.8/`srmr_progress_v3`を保持。ラジオ版のコード固定commit `585bb1c17a26ee05cc441fa67f7559a78c36d0f3`。別版の1.6.8と混同せず、固定URLで内容を確認する。`docs/SR-MISSION-RUNNER-168-TRIAL.md`に導入・映像・ラジオ・台帳の受入を追記。
+- 純粋関数・合成DOM回帰を追加。CI/current-head reviewとiPhone Safari実機は別に検証、独立レビュー・実機受入前はDraftを維持。main・親#14/#16/#17/#20・Mixch本体・公開サイトは変更しない。
 
 ## 2026-10-21 — SR v1.6.8の-2002復帰・記録保護（既存PR #20）
 
