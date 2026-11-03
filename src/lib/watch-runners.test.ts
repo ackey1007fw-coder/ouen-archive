@@ -139,6 +139,8 @@ test('SR player discovery works without :has() and keeps the official container 
         if (selector === '.room-video-wrapper') return fixture.wrappers;
         if (selector === '.room-video') return fixture.hls;
         if (selector === '.st-container') return fixture.tc;
+        if (selector === '.room-audio-wrapper, .room-radio-wrapper, .room-audio-player, .radio-player, #live-audio-player, #radio-player, [data-player-kind="radio"]') return [];
+        if (selector === '.room-block audio') return [];
         throw new Error(`Unexpected selector: ${selector}`);
       } },
       getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
@@ -263,9 +265,17 @@ test('both installers are self-contained and do not automate service actions', (
   assert.match(srCode,/@version\s+1\.6\.8/);
 });
 
-test('standalone installers share parsing and state helpers; service-specific receipt UI is independent', () => {
-  const engine = (s: string) => s.slice(s.indexOf('(() => {'), s.indexOf('  const lifetimeKey')).replace(/const CONFIG = .*?;/, 'const CONFIG = {};').replace(/\r\n/g, '\n');
-  assert.equal(engine(srCode), engine(mxCode));
+test('standalone installers retain exact shared parsing and state helpers; SR-only media and review extensions are isolated', () => {
+  const normalized = (s: string) => s.replace(/const CONFIG = .*?;/, 'const CONFIG = {};').replace(/\r\n/g, '\n');
+  // The shared base is compared unchanged, excluding the new audio-only SR helper.
+  assert.equal(normalized(srCode.slice(srCode.indexOf('(() => {'), srCode.indexOf('  // A video element can carry an audio-only HLS stream'))),
+    normalized(mxCode.slice(mxCode.indexOf('(() => {'), mxCode.indexOf('  const validRoomId ='))));
+  // Validation, room IDs, history, official mission parsing and stop detection
+  // stay byte-for-byte aligned. Only SR's receipt retention intentionally differs.
+  assert.equal(srCode.slice(srCode.indexOf('  const validRoomId ='), srCode.indexOf('  const REVIEW_LIMIT =')),
+    mxCode.slice(mxCode.indexOf('  const validRoomId ='), mxCode.indexOf('  function normalizeReviews(value)')));
+  assert.ok(srCode.includes("  const REVIEW_LIMIT = 1000;"), 'SR expands its local review ledger only');
+  assert.ok(mxCode.includes("    return [...result.values()].sort((a, b) => a.at - b.at).slice(-300);"), 'Mixch review policy stays unchanged');
 });
 
 test('SR parses observed listing timestamps as strict JST dates', () => {
