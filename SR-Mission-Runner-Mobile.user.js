@@ -950,10 +950,14 @@
       const wrappers = [...document.querySelectorAll('.room-video-wrapper')];
       // Safari before 15.4 cannot parse :has(); identify TCPlayer descendants
       // with ordinary selectors while keeping the same official trust boundary.
-      const scopes = wrappers.length ? wrappers : [
+      const videoScopes = wrappers.length ? wrappers : [
         ...document.querySelectorAll('.room-video'),
         ...[...document.querySelectorAll('.st-container')].filter(scope => scope.querySelector('#live-video-player')),
       ];
+      // Audio-only room players may be siblings of a legacy video wrapper.
+      // Only explicit first-party radio/player hosts are included here.
+      const radioScopes = [...document.querySelectorAll('.room-audio-wrapper, .room-radio-wrapper, .room-audio-player, .radio-player, #live-audio-player, #radio-player, [data-player-kind="radio"]')];
+      const scopes = [...videoScopes, ...radioScopes];
       const parent = node => node.assignedSlot || node.parentElement || node.getRootNode()?.host;
       const activeHost = (node, hiddenAudio = false) => {
         for (let n = node; n; n = parent(n)) {
@@ -973,12 +977,23 @@
         if (visited.has(scope)) return;
         visited.add(scope);
         if (scope.shadowRoot) collect(scope.shadowRoot);
+        if (scope.matches?.('video,audio') && activeHost(scope, scope.tagName === 'AUDIO')) nodes.add(scope);
         // Hidden audio is legitimate in an active host. Hidden video/ancestors
         // identify inactive players; walk composed parents across shadow roots.
         for (const node of scope.querySelectorAll('video,audio')) if (activeHost(node, node.tagName === 'AUDIO')) nodes.add(node);
         for (const node of scope.querySelectorAll('*')) if (node.shadowRoot) collect(node.shadowRoot);
       };
       for (const scope of scopes) if (activeHost(scope)) collect(scope);
+      // A radio stream sometimes mounts one hidden <audio> directly in the
+      // main first-party room area rather than inside a named player wrapper.
+      // Never fall back to document-wide audio, ads or multiple ambiguous audio.
+      const hasAudio = [...nodes].some(node => node.tagName === 'AUDIO');
+      const visiblePicture = [...nodes].some(node => node.tagName === 'VIDEO' && node.readyState >= 2 && node.videoWidth > 0 && node.videoHeight > 0);
+      if (!hasAudio && !visiblePicture) {
+        const roomAudio = [...document.querySelectorAll('.room-block audio')].filter(node =>
+          activeHost(node, true) && (node.currentSrc || node.src || node.srcObject || node.readyState >= 1));
+        if (roomAudio.length === 1) nodes.add(roomAudio[0]);
+      }
       return [...nodes];
     }
     // Observe only official media. Keep a short, in-memory event trace without
@@ -1004,7 +1019,9 @@
       const nodes = playerMedia();
       // A single explicit tap starts one native player in the user activation
       // stack. Never await GM storage or call this from a timer/auto navigation.
-      const score = m => (!m.paused ? 20 : 0) + (m.readyState >= 2 ? 10 : 0) + (m.currentSrc || m.src || m.srcObject ? 5 : 0);
+      const pictureAvailable = nodes.some(m => m.tagName === 'VIDEO' && m.readyState >= 2 && m.videoWidth > 0 && m.videoHeight > 0);
+      const preferAudio = !pictureAvailable && nodes.some(m => m.tagName === 'AUDIO');
+      const score = m => (!m.paused ? 20 : 0) + (m.readyState >= 2 ? 10 : 0) + (m.currentSrc || m.src || m.srcObject ? 5 : 0) + (preferAudio && m.tagName === 'AUDIO' ? 25 : 0);
       const candidates = nodes.filter(m => !m.error && !m.ended).sort((a,b) => score(b) - score(a));
       if (candidates.length > 1 && score(candidates[0]) === score(candidates[1])) { playFeedback = '配信プレイヤーを一意に確認できません。公式画面を表示して再生してください。'; render(); return; }
       const media = candidates[0];
@@ -1094,19 +1111,19 @@
       // Sample every candidate independently: a frozen first video must not hide
       // progressing playback. Add at most one delta per tick, never two streams.
       const mediaNodes = playerMedia();
-      let delta = 0, candidates = 0, waiting = 0, stopped = 0, errors = 0, advanced = 0;
+      let delta = 0, candidates = 0, waiting = 0, stopped = 0, errors = 0, advanced = 0, progressing = null;
       for (const media of mediaNodes) {
         observeMedia(media);
-        const time = Number.isFinite(media.currentTime) ? media.currentTime : null;
-        const previous = mediaSamples.get(media);
-        const playing = !media.paused && !media.ended && !media.error && media.readyState >= 2;
-        delta = Math.max(delta, timerDelta(wall, time !== null && previous !== undefined ? time - previous : 0, true, playing));
+        const evidence = mediaEvidence(media, mediaSamples.get(media), wall, true);
+        if (evidence.delta > delta) { delta = evidence.delta; progressing = evidence; }
         if (media.error) errors++; else if (media.paused || media.ended) stopped++; else if (media.readyState < 2) waiting++;
-        if (playing && time !== null && previous !== undefined && time > previous) advanced++;
-        if (playing && time !== null) { mediaSamples.set(media, time); candidates++; } else mediaSamples.delete(media);
+        if (evidence.advanced) advanced++;
+        if (evidence.playing && evidence.currentTime !== null) { mediaSamples.set(media, evidence.currentTime); candidates++; } else mediaSamples.delete(media);
       }
-      el('playbackDiagnostic').textContent = `動画 ${mediaNodes.filter(m => m.tagName === 'VIDEO').length}・音声 ${mediaNodes.filter(m => m.tagName === 'AUDIO').length} / 再生可能 ${candidates}・進行 ${advanced}・停止 ${stopped}・読込 ${waiting}・エラー ${errors}`;
-      el('playbackState').textContent = mediaNodes.map(m => `${mediaIds.get(m)}: readyState ${m.readyState} / networkState ${m.networkState} / ソース ${m.currentSrc || m.src || m.srcObject ? 'あり' : 'なし'} / 時刻 ${Number.isFinite(m.currentTime) ? m.currentTime.toFixed(1) : '不明'}秒 / ミュート ${m.muted ? 'ON' : 'OFF'} / エラーコード ${m.error?.code || 0}`).join(' ／ ');
+      const audioOnlyCandidate = mediaNodes.some(m => m.tagName === 'AUDIO' || (m.tagName === 'VIDEO' && m.readyState >= 2 && m.videoWidth === 0 && m.videoHeight === 0));
+      const radioMode = progressing ? progressing.audioOnly : audioOnlyCandidate && !mediaNodes.some(m => m.tagName === 'VIDEO' && m.videoWidth > 0 && m.videoHeight > 0);
+      el('playbackDiagnostic').textContent = `動画 ${mediaNodes.filter(m => m.tagName === 'VIDEO').length}・音声 ${mediaNodes.filter(m => m.tagName === 'AUDIO').length} / 再生可能 ${candidates}・進行 ${advanced}・停止 ${stopped}・読込 ${waiting}・エラー ${errors} / ${radioMode ? '音声のみ候補' : '映像・音声を確認中'}`;
+      el('playbackState').textContent = mediaNodes.slice(0, 8).map(m => `${mediaIds.get(m)}: ${m.tagName.toLowerCase()} / currentTime ${Number.isFinite(m.currentTime) ? m.currentTime.toFixed(2) : '不明'}秒 / paused ${m.paused} / readyState ${m.readyState} / networkState ${m.networkState} / ソース ${m.currentSrc || m.src || m.srcObject ? 'あり' : 'なし'} / ミュート ${m.muted ? 'ON' : 'OFF'} / エラーコード ${m.error?.code || 0}`).join(' ／ ');
       elapsed += delta;
       if (delta > 0) { if (playWatch) playRequest++; playFeedback = ''; playWatch = false; playWait = 0; }
       else if (playWatch) {
@@ -1117,7 +1134,7 @@
           el('playbackDetails').open = true;
         }
       }
-      playbackStatus = delta > 0 ? '' : candidates ? '再生の進行を確認中。映像が止まっている時は、「配信を再生」を押してください。' : !mediaNodes.length ? '配信プレイヤーの読込待ちです。公式画面の読込・ログイン・入室制限を確認してください。' : errors ? '配信プレイヤーにエラーがあります。公式画面を確認して再読込してください。' : waiting ? '配信データを読込中です。進まない時は「配信を再生」を押してください。' : '配信が停止しています。「配信を再生」を押してください。ミュート中でも再生が進めば計測します。';
+      playbackStatus = delta > 0 ? (radioMode ? 'ラジオ配信：音声で計測中' : '映像配信：再生時間を計測中') : candidates ? (radioMode ? 'ラジオ配信：音声の進行を確認中。時間が進むと計測します。' : '映像配信：再生の進行を確認中。停止した時は公式画面を確認してください。') : !mediaNodes.length ? '公式プレイヤーを検出できません。ラジオの場合も音声要素が見つからなければ加算しません。' : errors ? '配信プレイヤーにエラーがあります。公式画面を確認して再読込してください。' : waiting ? '配信データを読込中です。進まない時は公式画面を確認してください。' : radioMode ? 'ラジオ配信：音声が停止しています。公式画面で再生を確認してください。' : '配信が停止しています。「配信を再生」を押してください。ミュート中でも再生が進めば計測します。';
       if (elapsed >= prefs.seconds * 1000) { elapsed = prefs.seconds * 1000; ready = true; graceElapsed = 0; if (linkedEnabled && officialAllowed) void readOfficial(); if (prefs.autoNext) showOfficial(true); }
       render();
     }, 250);
