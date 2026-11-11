@@ -120,16 +120,16 @@ try {
       });
       if(target.scenario==='sr-official') await check('official, nao and onlive share earned exclusions and return to the originating list',async()=>{
         await part('back').click();await page.waitForURL(target.home);await panel().waitFor();
-        await checkText('source',/公式/);await checkText('name',/未記録 1ルーム.*記録済み 1件/);
+        await checkText('source',/公式/);await checkText('name',/未記録 2ルーム.*記録済み 0件/);
         await page.goto('https://nao.qa/ap/search.php?kw=&genre=103');await panel().waitFor();
         await checkText('source',/nao/);await checkText('name',/未記録 1ルーム.*記録済み 1件/);await checkText('total',/0 \/ 20/);
         await page.goto('https://www.showroom-live.com/onlive');await panel().waitFor();
-        await checkText('source',/公式/);await checkText('name',/未記録 1ルーム.*記録済み 1件/);
-        await part('start').click();await page.waitForURL(target.live(target.two));await panel().waitFor();
+        await checkText('source',/公式/);await checkText('name',/未記録 2ルーム.*記録済み 0件/);
+        await part('start').click();await page.waitForURL(target.live(target.one));await panel().waitFor();
         const active=[...store.values()].find(v=>v?.active===true && v.listUrl==='https://www.showroom-live.com/onlive');
         assert.ok(active);assert.equal(active.queue[0].startedAt,null);
         await part('back').click();await page.waitForURL('https://www.showroom-live.com/onlive');await panel().waitFor();
-        await part('start').click();await page.waitForURL(target.live(target.two));await panel().waitFor();
+        await part('start').click();await page.waitForURL(target.live(target.one));await panel().waitFor();
       });
       await check('responsive compact control fits the viewport',async()=>{
         assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));

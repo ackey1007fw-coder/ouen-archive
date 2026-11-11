@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SR Mission Runner Mobile
 // @namespace    https://nao.qa/
-// @version      1.6.8
+// @version      1.6.9
 // @description  SHOWROOMの実再生時間を計測し、時間到達で端末へ自動記録して次の配信へ移動。公式回数は読取専用で常時連動。
 // @author       ackey + ChatGPT
 // @match        https://nao.qa/ap/*
@@ -17,7 +17,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "sr", "version": "1.6.8", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
+  const CONFIG = {"kind": "sr", "version": "1.6.9", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -140,7 +140,8 @@
   }
 
   // One high-water mark per room survives queue restarts and period changes.
-  // A later observed start is eligible; unknown/stale starts stay excluded.
+  // A later observed start is a new broadcast. Unknown starts match only
+  // records from the current 03:00/15:00 slot, not the lifetime high-water mark.
   function normalizeHistory(value) {
     const result = new Map();
     for (const r of Array.isArray(value) ? value : []) {
@@ -151,9 +152,12 @@
     }
     return [...result.values()];
   }
-  function isRecorded(room, records) {
+  function isRecorded(room, records, now) {
     const r = asRoom(room);
-    return records.some(d => d.slug === r.slug && (CONFIG.kind !== 'sr' || !validStart(r.startedAt) || r.startedAt <= d.at));
+    if (CONFIG.kind !== 'sr') return records.some(d => d.slug === r.slug);
+    if (validStart(r.startedAt)) return records.some(d => d.slug === r.slug && r.startedAt <= d.at);
+    const slot = periodAt(Number.isFinite(now) ? now : Date.now());
+    return records.some(d => d.slug === r.slug && d.at >= slot.start && d.at < slot.end);
   }
 
   function roomsOnly(value) {
@@ -183,7 +187,7 @@
   function addDone(s, room, now, period, source = 'legacy') {
     const r = asRoom(room);
     if (s.period !== period.key || now < period.start || now >= period.end || !liveUrl(r.slug)) return false;
-    if (!isRecorded(r, s.done)) s.done.push({ slug: r.slug, startedAt: validStart(r.startedAt), at: now, source: ['timer', 'official', 'manual'].includes(source) ? source : 'legacy' });
+    if (!isRecorded(r, s.done, now)) s.done.push({ slug: r.slug, startedAt: validStart(r.startedAt), at: now, source: ['timer', 'official', 'manual'].includes(source) ? source : 'legacy' });
     s.checkpoint = null;
     return true;
   }
@@ -196,6 +200,18 @@
   function timerDelta(wall, mediaDelta, visible, playing) {
     return visible && playing && wall > 0 && wall <= 1500 && mediaDelta > 0 && mediaDelta <= 2
       ? Math.min(wall, mediaDelta * 1000, 1000) : 0;
+  }
+
+  // A video element can carry an audio-only HLS stream; neither dimensions nor
+  // a rendered frame are required for credit. Only forward media time counts.
+  function mediaEvidence(media, previousTime, wall, visible) {
+    const type = media?.tagName === 'AUDIO' ? 'audio' : media?.tagName === 'VIDEO' ? 'video' : 'unknown';
+    const currentTime = Number.isFinite(media?.currentTime) && media.currentTime >= 0 ? media.currentTime : null;
+    const playing = type !== 'unknown' && !media.paused && !media.ended && !media.error && media.readyState >= 2;
+    const advanced = playing && currentTime !== null && Number.isFinite(previousTime) && currentTime > previousTime;
+    const delta = advanced ? timerDelta(wall, currentTime - previousTime, visible, playing) : 0;
+    const audioOnly = type === 'audio' || (type === 'video' && playing && media.videoWidth === 0 && media.videoHeight === 0);
+    return { type, currentTime, playing, advanced, delta, audioOnly };
   }
 
   const validRoomId = n => /^[1-9][0-9]{0,11}$/.test(String(n || '')) ? String(n) : '';
@@ -282,6 +298,8 @@
       ? n.textContent.trim() === '配信停止中'
       : /^(?:現在配信していません|ライブが終了しています)[。！!]?$/.test(n.textContent.trim())));
   }
+  const REVIEW_LIMIT = 1000;
+  const REVIEW_PAGE_SIZE = 20;
   function normalizeReviews(value) {
     const result = new Map(), rank = { unconfirmed: 0, manual: 1, official: 2 };
     for (const r of Array.isArray(value) ? value : []) {
@@ -293,11 +311,17 @@
       result.set(key, { slug: r.slug, startedAt, period: r.period, at: previous?.at || r.at, source: previous?.source || r.source,
         reward: previous && rank[previous.reward] > rank[reward] ? previous.reward : reward });
     }
-    return [...result.values()].sort((a, b) => a.at - b.at).slice(-300);
+    // Keep unconfirmed receipts preferentially. The old 300-item rolling
+    // window could silently evict unresolved records during long-term use.
+    const ordered = [...result.values()].sort((a, b) => a.at - b.at);
+    const unresolved = ordered.filter(r => r.reward === 'unconfirmed').slice(-REVIEW_LIMIT);
+    const confirmedSlots = REVIEW_LIMIT - unresolved.length;
+    const confirmed = confirmedSlots ? ordered.filter(r => r.reward !== 'unconfirmed').slice(-confirmedSlots) : [];
+    return [...confirmed, ...unresolved].sort((a, b) => a.at - b.at);
   }
   const officialAdsUrl = 'https://www.showroom-live.com/lottery/ad_reward';
 
-  const api = { normalizeReviews, stoppedRoom, hydrationRoomId, showroomLoggedOutHint, officialOnliveFallback, repeatedMissionCount, mixchBonusProgress, freshLinkedSnapshot, isAdPage, officialMissionSummary, missionReadUrl, listSource, returnListUrl, officialRooms, parseStartedAt, normalizeHistory, isRecorded, recordKey, periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, roomsOnly };
+  const api = { normalizeReviews, stoppedRoom, hydrationRoomId, showroomLoggedOutHint, officialOnliveFallback, repeatedMissionCount, mixchBonusProgress, freshLinkedSnapshot, isAdPage, officialMissionSummary, missionReadUrl, listSource, returnListUrl, officialRooms, parseStartedAt, normalizeHistory, isRecorded, recordKey, periodAt, parseRoom, liveUrl, profileUrl, normalizeState, countDone, addDone, adjustCount, migrateLegacy, timerDelta, mediaEvidence, roomsOnly };
   if (typeof document === 'undefined') {
     if (typeof module !== 'undefined') module.exports = api;
     return;
@@ -471,7 +495,11 @@
       <div class="sub name" id="name"></div><div class="time" id="time"></div><div class="status" id="status" role="status"></div>
       <div class="row" id="playerControls"><button id="playMedia">▶ ミュートで配信を再生</button><button id="revealPlayer">公式画面を表示（パネルを退避）</button></div><div class="note" id="playFeedback" role="status"></div><div class="row" id="reloadControls"><button id="reloadPlayer">保存して配信を再読込</button><button id="skipError" hidden>記録せず次へ ▶</button></div><details class="fold" id="playbackDetails"><summary>再生の検出状況</summary><div class="note" id="playbackDiagnostic"></div><div class="note" id="playbackState"></div><div class="note" id="playbackEvents"></div></details>
       <div class="row" id="listControls"><select id="seconds" aria-label="視聴目安秒数"><option value="30">30秒</option><option value="32">32秒</option><option value="35">35秒</option></select><select id="target" aria-label="目標ルーム数"><option value="10">10件</option><option value="20">20件</option></select><button class="primary" id="start">続きから開始</button></div>
-      <details id="reviewBox"><summary id="reviewSummary">取得未確認の視聴記録</summary><div class="note">過去の枠を含む記録です。今回の残り回数ではありません。公式で取得を確認してください。戻っても自動では再計上しません。最新300件を端末に保存します。</div><div id="reviewLinks"></div></details>
+      <details id="reviewBox"><summary id="reviewSummary">取得未確認の視聴記録</summary>
+        <div class="note" id="reviewHelp">過去枠を含む端末の視聴メモです。公式への再送待ちではありません。確認できた記録だけ手動で確認済みにできます。</div>
+        <div class="row"><button id="exportReviews">台帳をJSON保存</button></div>
+        <div id="reviewLinks"></div><div class="row"><button id="reviewMore" hidden>過去の20件をさらに表示</button></div>
+      </details>
       <div class="row" id="autoControls"><button id="autoToggle">自動記録・次へ：ON</button></div><div class="note" id="autoStatus" role="status"></div>
       <div class="row" id="watchControls"><button class="primary" id="next" disabled>記録して次へ</button><button id="skip">スキップ</button></div>
       <div class="row fold" id="discover"><a class="action" id="follow" target="_blank" rel="noopener noreferrer">♡ フォロー画面</a><button id="favorite">☆ あとで見る</button></div><div class="row fold" id="excludeControls"><button id="exclude">取得済みなので除外</button></div>
@@ -647,14 +675,16 @@
       render();
     });
 
-    let renderedReviews = '';
+    let renderedReviews = '', reviewVisibleCount = REVIEW_PAGE_SIZE;
     function renderReviews() {
       const pendingReviews = reviews.filter(r => r.reward === 'unconfirmed');
-      el('reviewSummary').textContent = `取得未確認の視聴記録 ${pendingReviews.length}件`;
-      const signature = JSON.stringify(pendingReviews);
+      el('reviewSummary').textContent = `取得未確認の視聴記録 ${pendingReviews.length}件（端末メモ）`;
+      el('reviewHelp').textContent = `公式に自動再送する項目はありません。過去枠を含む個別記録です。直近${Math.min(reviewVisibleCount, pendingReviews.length)}件を表示。保存上限${REVIEW_LIMIT}件（未確認優先）。${reviews.length >= REVIEW_LIMIT ? '上限に達しました。JSONを保存して確認済み記録を整理してください。' : '公式の受取状況は本人が確認してください。'}`;
+      el('reviewMore').hidden = pendingReviews.length <= reviewVisibleCount;
+      const signature = JSON.stringify(pendingReviews) + ':' + reviewVisibleCount;
       if (signature === renderedReviews) return;
       renderedReviews = signature; el('reviewLinks').replaceChildren();
-      for (const r of pendingReviews.slice().reverse()) {
+      for (const r of pendingReviews.slice(-reviewVisibleCount).reverse()) {
         const a = document.createElement('a'); a.className = 'action'; a.style.display = 'block'; a.style.marginTop = '6px';
         a.href = liveUrl(r.slug); a.target = '_blank'; a.rel = 'noopener noreferrer';
         a.textContent = `${r.slug} — ${new Date(r.at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })} 公式で確認 ↗`;
@@ -667,6 +697,18 @@
         row.append(a, confirm); el('reviewLinks').append(row);
       }
     }
+    el('reviewMore').addEventListener('click', () => {
+      reviewVisibleCount = Math.min(REVIEW_LIMIT, reviewVisibleCount + REVIEW_PAGE_SIZE);
+      renderReviews();
+    });
+    // Explicit local backup; never transmit this personal viewing history.
+    el('exportReviews').addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify({ schema: 'srmr-watch-reviews-v1', exportedAt: new Date().toISOString(), reviews }, null, 2)], { type: 'application/json' });
+      const href = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = href; a.download = `srmr-watch-reviews-${new Date().toISOString().slice(0, 10)}.json`;
+      a.style.display = 'none'; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 60000);
+    });
     async function saveReview(record) {
       const raw = await GM.getValue(reviewKey, []);
       const next = normalizeReviews([...(Array.isArray(raw) ? raw : []), record]);
@@ -912,10 +954,14 @@
       const wrappers = [...document.querySelectorAll('.room-video-wrapper')];
       // Safari before 15.4 cannot parse :has(); identify TCPlayer descendants
       // with ordinary selectors while keeping the same official trust boundary.
-      const scopes = wrappers.length ? wrappers : [
+      const videoScopes = wrappers.length ? wrappers : [
         ...document.querySelectorAll('.room-video'),
         ...[...document.querySelectorAll('.st-container')].filter(scope => scope.querySelector('#live-video-player')),
       ];
+      // Audio-only room players may be siblings of a legacy video wrapper.
+      // Only explicit first-party radio/player hosts are included here.
+      const radioScopes = [...document.querySelectorAll('.room-audio-wrapper, .room-radio-wrapper, .room-audio-player, .radio-player, #live-audio-player, #radio-player, [data-player-kind="radio"]')];
+      const scopes = [...videoScopes, ...radioScopes];
       const parent = node => node.assignedSlot || node.parentElement || node.getRootNode()?.host;
       const activeHost = (node, hiddenAudio = false) => {
         for (let n = node; n; n = parent(n)) {
@@ -935,12 +981,23 @@
         if (visited.has(scope)) return;
         visited.add(scope);
         if (scope.shadowRoot) collect(scope.shadowRoot);
+        if (scope.matches?.('video,audio') && activeHost(scope, scope.tagName === 'AUDIO')) nodes.add(scope);
         // Hidden audio is legitimate in an active host. Hidden video/ancestors
         // identify inactive players; walk composed parents across shadow roots.
         for (const node of scope.querySelectorAll('video,audio')) if (activeHost(node, node.tagName === 'AUDIO')) nodes.add(node);
         for (const node of scope.querySelectorAll('*')) if (node.shadowRoot) collect(node.shadowRoot);
       };
       for (const scope of scopes) if (activeHost(scope)) collect(scope);
+      // A radio stream sometimes mounts one hidden <audio> directly in the
+      // main first-party room area rather than inside a named player wrapper.
+      // Never fall back to document-wide audio, ads or multiple ambiguous audio.
+      const hasAudio = [...nodes].some(node => node.tagName === 'AUDIO');
+      const visiblePicture = [...nodes].some(node => node.tagName === 'VIDEO' && node.readyState >= 2 && node.videoWidth > 0 && node.videoHeight > 0);
+      if (!hasAudio && !visiblePicture) {
+        const roomAudio = [...document.querySelectorAll('.room-block audio')].filter(node =>
+          activeHost(node, true) && (node.currentSrc || node.src || node.srcObject || node.readyState >= 1));
+        if (roomAudio.length === 1) nodes.add(roomAudio[0]);
+      }
       return [...nodes];
     }
     // Observe only official media. Keep a short, in-memory event trace without
@@ -966,7 +1023,9 @@
       const nodes = playerMedia();
       // A single explicit tap starts one native player in the user activation
       // stack. Never await GM storage or call this from a timer/auto navigation.
-      const score = m => (!m.paused ? 20 : 0) + (m.readyState >= 2 ? 10 : 0) + (m.currentSrc || m.src || m.srcObject ? 5 : 0);
+      const pictureAvailable = nodes.some(m => m.tagName === 'VIDEO' && m.readyState >= 2 && m.videoWidth > 0 && m.videoHeight > 0);
+      const preferAudio = !pictureAvailable && nodes.some(m => m.tagName === 'AUDIO');
+      const score = m => (!m.paused ? 20 : 0) + (m.readyState >= 2 ? 10 : 0) + (m.currentSrc || m.src || m.srcObject ? 5 : 0) + (preferAudio && m.tagName === 'AUDIO' ? 25 : 0);
       const candidates = nodes.filter(m => !m.error && !m.ended).sort((a,b) => score(b) - score(a));
       if (candidates.length > 1 && score(candidates[0]) === score(candidates[1])) { playFeedback = '配信プレイヤーを一意に確認できません。公式画面を表示して再生してください。'; render(); return; }
       const media = candidates[0];
@@ -978,7 +1037,7 @@
         playWatch = error?.name === 'AbortError';
         el('playbackDetails').open = true;
         playFeedback = error?.name === 'AbortError' ? '再生要求が中断されました（AbortError）。公式プレイヤーの復帰を8秒間確認します。進まなければ「保存して配信を再読込」を押してください。'
-          : error?.name === 'NotAllowedError' ? 'Safariが再生を許可しませんでした。公式画面を表示してミュート解除を押すか、ページを再読込してください。'
+          : error?.name === 'NotAllowedError' ? 'Safariが再生を許可しませんでした。画面表示中に公式の再生を直接タップするか、ページを再読込してください。自動再試行はしません。'
           : error?.name === 'NotSupportedError' ? '配信データを再生できませんでした。公式画面の読込を確認し、ページを再読込してください。'
           : `再生を開始できませんでした（${cleanName(error?.name || '不明')}）。再生の検出状況を確認してください。`;
         render();
@@ -1056,19 +1115,19 @@
       // Sample every candidate independently: a frozen first video must not hide
       // progressing playback. Add at most one delta per tick, never two streams.
       const mediaNodes = playerMedia();
-      let delta = 0, candidates = 0, waiting = 0, stopped = 0, errors = 0, advanced = 0;
+      let delta = 0, candidates = 0, waiting = 0, stopped = 0, errors = 0, advanced = 0, progressing = null;
       for (const media of mediaNodes) {
         observeMedia(media);
-        const time = Number.isFinite(media.currentTime) ? media.currentTime : null;
-        const previous = mediaSamples.get(media);
-        const playing = !media.paused && !media.ended && !media.error && media.readyState >= 2;
-        delta = Math.max(delta, timerDelta(wall, time !== null && previous !== undefined ? time - previous : 0, true, playing));
+        const evidence = mediaEvidence(media, mediaSamples.get(media), wall, true);
+        if (evidence.delta > delta) { delta = evidence.delta; progressing = evidence; }
         if (media.error) errors++; else if (media.paused || media.ended) stopped++; else if (media.readyState < 2) waiting++;
-        if (playing && time !== null && previous !== undefined && time > previous) advanced++;
-        if (playing && time !== null) { mediaSamples.set(media, time); candidates++; } else mediaSamples.delete(media);
+        if (evidence.advanced) advanced++;
+        if (evidence.playing && evidence.currentTime !== null) { mediaSamples.set(media, evidence.currentTime); candidates++; } else mediaSamples.delete(media);
       }
-      el('playbackDiagnostic').textContent = `動画 ${mediaNodes.filter(m => m.tagName === 'VIDEO').length}・音声 ${mediaNodes.filter(m => m.tagName === 'AUDIO').length} / 再生可能 ${candidates}・進行 ${advanced}・停止 ${stopped}・読込 ${waiting}・エラー ${errors}`;
-      el('playbackState').textContent = mediaNodes.map(m => `${mediaIds.get(m)}: readyState ${m.readyState} / networkState ${m.networkState} / ソース ${m.currentSrc || m.src || m.srcObject ? 'あり' : 'なし'} / 時刻 ${Number.isFinite(m.currentTime) ? m.currentTime.toFixed(1) : '不明'}秒 / ミュート ${m.muted ? 'ON' : 'OFF'} / エラーコード ${m.error?.code || 0}`).join(' ／ ');
+      const audioOnlyCandidate = mediaNodes.some(m => m.tagName === 'AUDIO' || (m.tagName === 'VIDEO' && m.readyState >= 2 && m.videoWidth === 0 && m.videoHeight === 0));
+      const radioMode = progressing ? progressing.audioOnly : audioOnlyCandidate && !mediaNodes.some(m => m.tagName === 'VIDEO' && m.videoWidth > 0 && m.videoHeight > 0);
+      el('playbackDiagnostic').textContent = `動画 ${mediaNodes.filter(m => m.tagName === 'VIDEO').length}・音声 ${mediaNodes.filter(m => m.tagName === 'AUDIO').length} / 再生可能 ${candidates}・進行 ${advanced}・停止 ${stopped}・読込 ${waiting}・エラー ${errors} / ${radioMode ? '音声のみ候補' : '映像・音声を確認中'}`;
+      el('playbackState').textContent = mediaNodes.slice(0, 8).map(m => `${mediaIds.get(m)}: ${m.tagName.toLowerCase()} / currentTime ${Number.isFinite(m.currentTime) ? m.currentTime.toFixed(2) : '不明'}秒 / paused ${m.paused} / readyState ${m.readyState} / networkState ${m.networkState} / ソース ${m.currentSrc || m.src || m.srcObject ? 'あり' : 'なし'} / ミュート ${m.muted ? 'ON' : 'OFF'} / エラーコード ${m.error?.code || 0}`).join(' ／ ');
       elapsed += delta;
       if (delta > 0) { if (playWatch) playRequest++; playFeedback = ''; playWatch = false; playWait = 0; }
       else if (playWatch) {
@@ -1079,7 +1138,7 @@
           el('playbackDetails').open = true;
         }
       }
-      playbackStatus = delta > 0 ? '' : candidates ? '再生の進行を確認中。映像が止まっている時は、「配信を再生」を押してください。' : !mediaNodes.length ? '配信プレイヤーの読込待ちです。公式画面の読込・ログイン・入室制限を確認してください。' : errors ? '配信プレイヤーにエラーがあります。公式画面を確認して再読込してください。' : waiting ? '配信データを読込中です。進まない時は「配信を再生」を押してください。' : '配信が停止しています。「配信を再生」を押してください。ミュート中でも再生が進めば計測します。';
+      playbackStatus = delta > 0 ? (radioMode ? 'ラジオ配信：音声で計測中' : '映像配信：再生時間を計測中') : candidates ? (radioMode ? 'ラジオ配信：音声の進行を確認中。時間が進むと計測します。' : '映像配信：再生の進行を確認中。停止した時は公式画面を確認してください。') : !mediaNodes.length ? '公式プレイヤーを検出できません。ラジオの場合も音声要素が見つからなければ加算しません。' : errors ? '配信プレイヤーにエラーがあります。公式画面を確認して再読込してください。' : waiting ? '配信データを読込中です。進まない時は公式画面を確認してください。' : radioMode ? 'ラジオ配信：音声が停止しています。公式画面で再生を確認してください。' : '配信が停止しています。「配信を再生」を押してください。ミュート中でも再生が進めば計測します。';
       if (elapsed >= prefs.seconds * 1000) { elapsed = prefs.seconds * 1000; ready = true; graceElapsed = 0; if (linkedEnabled && officialAllowed) void readOfficial(); if (prefs.autoNext) showOfficial(true); }
       render();
     }, 250);

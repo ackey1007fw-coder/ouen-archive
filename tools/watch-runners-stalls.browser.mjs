@@ -17,6 +17,7 @@ const cases = ['frozen-first-media', 'offline-escape', 'slow-storage', 'always-l
 cases.push('no-has-hls-progress', 'no-has-tc-progress', 'tap-no-has-hls', 'tap-no-has-tc', 'no-has-unscoped-media');
 cases.push('tap-loading-reload', 'tap-loading-save-failure', 'tap-pending-play', 'reload-partial-progress');
 cases.push('tap-muted-gate', 'tap-aborted-stalled', 'tap-aborted-recovered', 'tap-aborted-hidden', 'tap-delayed-abort');
+cases.push('radio-audio-host', 'radio-room-block', 'radio-hls-video', 'tap-radio-denied');
 try {
   for (const name of cases.filter(n => !process.env.RUNNER_CASE || n === process.env.RUNNER_CASE)) {
     const requests = [], errors = [];
@@ -67,12 +68,12 @@ try {
         const media = [...document.querySelectorAll('video,audio'), ...(document.getElementById('native-player')?.shadowRoot?.querySelectorAll('video,audio') || []), ...(document.getElementById('wrapper')?.shadowRoot?.querySelectorAll('video,audio') || [])];
         for (const m of media) {
           const frozen = m.id === 'frozen';
-          for (const [k,get] of Object.entries({paused:()=>m.id === 'old' && ['tap-slotted-player','tap-unassigned-player','tap-slot-fallback-player'].includes(name) ? false : window.fixturePaused && !window.fixtureStarted.has(m.id),ended:()=>false,error:()=>name === 'native-error' ? {code:3} : null,readyState:()=>name === 'native-loading' || name.includes('loading-') || name === 'tap-pending-play' ? 1 : 4,currentTime:()=>frozen || (m.id === 'old' && name === 'tap-visible-player') || window.fixtureFrozen ? 0 : performance.now()/1000})) Object.defineProperty(m,k,{get,configurable:true});
+          for (const [k,get] of Object.entries({paused:()=>m.id === 'old' && ['tap-slotted-player','tap-unassigned-player','tap-slot-fallback-player'].includes(name) ? false : window.fixturePaused && !window.fixtureStarted.has(m.id),ended:()=>false,error:()=>name === 'native-error' ? {code:3} : null,readyState:()=>name === 'native-loading' || name.includes('loading-') || name === 'tap-pending-play' ? 1 : 4,currentTime:()=>frozen || (m.id === 'old' && name === 'tap-visible-player') || window.fixtureFrozen ? 0 : performance.now()/1000,videoWidth:()=>m.tagName === 'VIDEO' && name !== 'radio-hls-video' && !frozen ? 640 : 0,videoHeight:()=>m.tagName === 'VIDEO' && name !== 'radio-hls-video' && !frozen ? 360 : 0})) Object.defineProperty(m,k,{get,configurable:true});
         }
         for (const m of media) m.play = () => {
           window.fixturePlayCalls++; window.fixtureActivated = navigator.userActivation.isActive; window.fixturePlayTargets.push(m.id);
           if (name === 'tap-muted-gate' && (!m.muted || !m.playsInline || !navigator.userActivation.isActive)) return Promise.reject(new DOMException('activation/mute/inline required','NotAllowedError'));
-          if (name === 'tap-native-denied') return Promise.reject(new DOMException('denied','NotAllowedError'));
+          if (name === 'tap-native-denied' || name === 'tap-radio-denied') return Promise.reject(new DOMException('denied','NotAllowedError'));
           if (name === 'tap-pending-play') return new Promise(()=>{});
           if (name.startsWith('tap-aborted-')) {
             m.dispatchEvent(new Event('emptied')); m.dispatchEvent(new Event('pause'));
@@ -105,6 +106,8 @@ try {
       if (['official-hls-no-wrapper','no-has-hls-progress','tap-no-has-hls'].includes(name)) region = `<div class=room-video><div class=st-loading>${player}</div></div><div class=st-container><video id=advert></video></div>`;
       if (['official-tc-no-wrapper','no-has-tc-progress','tap-no-has-tc'].includes(name)) region = '<div class=st-container><div id=live-video-player><video id=player></video></div></div><div class=st-container><video id=advert></video></div>';
       if (['unscoped-media','no-has-unscoped-media'].includes(name)) region = '<div class=st-loading><video id=advert></video></div><div class=st-container><video id=other></video></div>';
+      if (['radio-audio-host','tap-radio-denied'].includes(name)) region = '<div class=room-audio-wrapper><audio id=player></audio></div>';
+      if (name === 'radio-room-block') region = '<div class=room-video-wrapper id=wrapper><video id=frozen></video></div><div class=room-block><audio id=radio></audio></div>';
       const body = `${name === 'second-player-wrapper'?'<div class=room-video-wrapper></div>':name === 'tap-visible-player'?'<div class=room-video-wrapper hidden><video id=old></video></div>':''}<h1>Fixture room</h1>${name === 'reveal-paused-player'?'<button id="fixturePlay" style="position:fixed;top:350px;left:45%;width:50px;height:50px" onclick="window.fixturePaused=false">▶</button>':''}${offline?'<div class="room-block"><div><p class="ta-c">配信停止中</p></div></div>':''}${region}${name === 'unrelated-media'?'<video id="advert"></video>':name === 'outside-loading-media'?'<div class=st-loading><video id=advert></video></div>':name === 'tap-ambiguous-player'?'<div class=room-video-wrapper><video id=other></video></div>':''}<script type="application/json" id="__NUXT_DATA__">[]</script>`;
       await route.fulfill({contentType:'text/html',body:`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${body}</body></html>`});
     });
@@ -181,12 +184,22 @@ try {
       assert.deepEqual(await p.evaluate(()=>window.fixturePlayTargets), ['player'], 'Exactly the active player is requested');
       }
       await tick(4000);
-      if (name === 'tap-native-denied' || name === 'tap-ambiguous-player') {
+      if (name === 'tap-native-denied' || name === 'tap-radio-denied' || name === 'tap-ambiguous-player') {
         assert.equal(await part('time').innerText(), '32');
-        if (name === 'tap-native-denied') assert.match(await part('playFeedback').innerText(), /Safariが再生を許可しません/);
+        if (name === 'tap-native-denied' || name === 'tap-radio-denied') assert.match(await part('playFeedback').innerText(), /Safariが再生を許可しません.*自動再試行はしません/);
       } else assert.ok(Number(await part('time').innerText()) < 32, 'Control-less native player starts from tap');
       if (name === 'tap-muted-gate') assert.equal(await p.locator('#player').evaluate(m=>m.muted && m.playsInline), true);
       if (name === 'tap-delayed-abort') assert.equal(await part('playFeedback').innerText(), '', 'A stale rejected play must not overwrite progressing playback');
+      assert.equal(store.get(`srmr_progress_v3_${key}`).done.length, 0);
+    } else if (['radio-audio-host','radio-room-block','radio-hls-video'].includes(name)) {
+      await tick(9000);
+      assert.ok(Number(await part('time').innerText()) < 30, 'Radio must advance only on actual media currentTime');
+      assert.match(await part('status').innerText(), /ラジオ配信：音声で計測中/);
+      await part('playbackDetails').locator('summary').click();
+      assert.match(await part('playbackState').innerText(), /(?:audio|video).*currentTime .*paused false.*readyState 4/);
+      await p.evaluate(()=>{window.fixturePaused=true;});
+      const before = Number(await part('time').innerText()); await tick(3000);
+      assert.equal(Number(await part('time').innerText()), before, 'Paused radio must not count');
       assert.equal(store.get(`srmr_progress_v3_${key}`).done.length, 0);
     } else if (['native-loading','native-error','missing-player'].includes(name)) {
       await tick(9000); assert.equal(await part('time').innerText(),'32');

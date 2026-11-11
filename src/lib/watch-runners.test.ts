@@ -20,7 +20,7 @@ type Runner = {
   returnListUrl: (url?: string) => string;
   parseStartedAt: (text: string) => number | null;
   normalizeHistory: (raw: unknown) => {slug:string;at:number;startedAt:number|null}[];
-  isRecorded: (room: Room, records: {slug:string;at:number}[]) => boolean;
+  isRecorded: (room: Room, records: {slug:string;at:number}[], now?: number) => boolean;
   periodAt: (now: number) => Period;
   parseRoom: (url: string) => { slug: string; viewing: boolean } | null;
   liveUrl: (slug: string) => string;
@@ -31,6 +31,7 @@ type Runner = {
   adjustCount: (state: State, n: number) => void;
   migrateLegacy: (raw: unknown, period: Period) => State;
   timerDelta: (wall: number, media: number, visible: boolean, playing: boolean) => number;
+  mediaEvidence: (media: {tagName: string; currentTime: number; readyState: number; paused: boolean; ended: boolean; error: unknown; videoWidth?: number; videoHeight?: number}, previous: number | undefined, wall: number, visible: boolean) => {type:string;currentTime:number|null;playing:boolean;advanced:boolean;delta:number;audioOnly:boolean};
 };
 const read = (name: string) => readFileSync(new URL(`../../${name}`, import.meta.url), 'utf8');
 const srCode = read('SR-Mission-Runner-Mobile.user.js');
@@ -138,6 +139,8 @@ test('SR player discovery works without :has() and keeps the official container 
         if (selector === '.room-video-wrapper') return fixture.wrappers;
         if (selector === '.room-video') return fixture.hls;
         if (selector === '.st-container') return fixture.tc;
+        if (selector === '.room-audio-wrapper, .room-radio-wrapper, .room-audio-player, .radio-player, #live-audio-player, #radio-player, [data-player-kind="radio"]') return [];
+        if (selector === '.room-block audio') return [];
         throw new Error(`Unexpected selector: ${selector}`);
       } },
       getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
@@ -259,12 +262,20 @@ test('both installers are self-contained and do not automate service actions', (
   assert.ok(manualPlay >= 0 && nextHandler > manualPlay);
   assert.doesNotMatch(srCode.slice(0, manualPlay) + srCode.slice(nextHandler),/\.play\(/);
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
-  assert.match(srCode,/@version\s+1\.6\.8/);
+  assert.match(srCode,/@version\s+1\.6\.9/);
 });
 
-test('standalone installers share parsing and state helpers; service-specific receipt UI is independent', () => {
-  const engine = (s: string) => s.slice(s.indexOf('(() => {'), s.indexOf('  const lifetimeKey')).replace(/const CONFIG = .*?;/, 'const CONFIG = {};').replace(/\r\n/g, '\n');
-  assert.equal(engine(srCode), engine(mxCode));
+test('standalone installers retain exact shared parsing and state helpers; SR-only media and review extensions are isolated', () => {
+  const normalized = (s: string) => s.replace(/const CONFIG = .*?;/, 'const CONFIG = {};').replace(/\r\n/g, '\n');
+  // The shared base is compared unchanged, excluding the new audio-only SR helper.
+  assert.equal(normalized(srCode.slice(srCode.indexOf('(() => {'), srCode.indexOf('  // A video element can carry an audio-only HLS stream'))),
+    normalized(mxCode.slice(mxCode.indexOf('(() => {'), mxCode.indexOf('  const validRoomId ='))));
+  // Validation, room IDs, history, official mission parsing and stop detection
+  // stay byte-for-byte aligned. Only SR's receipt retention intentionally differs.
+  assert.equal(srCode.slice(srCode.indexOf('  const validRoomId ='), srCode.indexOf('  const REVIEW_LIMIT =')),
+    mxCode.slice(mxCode.indexOf('  const validRoomId ='), mxCode.indexOf('  function normalizeReviews(value)')));
+  assert.ok(srCode.includes("  const REVIEW_LIMIT = 1000;"), 'SR expands its local review ledger only');
+  assert.ok(mxCode.includes("    return [...result.values()].sort((a, b) => a.at - b.at).slice(-300);"), 'Mixch review policy stays unchanged');
 });
 
 test('SR parses observed listing timestamps as strict JST dates', () => {
@@ -277,7 +288,8 @@ test('earned broadcast exclusion survives a fresh queue, count reset and 15:00',
   const nextPeriod=sr.periodAt(at('2026-09-11T15:00:00+09:00'));
   assert.equal(sr.countDone(sr.normalizeState(null,nextPeriod),20),0);
   assert.equal(sr.isRecorded(old,history),true);
-  assert.equal(sr.isRecorded({slug:old.slug,startedAt:null},history),true);
+  assert.equal(sr.isRecorded({slug:old.slug,startedAt:null},history,morning),true);
+  assert.equal(sr.isRecorded({slug:old.slug,startedAt:null},history,nextPeriod.start),false);
   assert.equal(sr.isRecorded({slug:old.slug,startedAt:at('2026-09-11T15:01:00+09:00')},history),false);
 });
 test('new broadcasts from the same room can count independently within one period', () => {
@@ -291,6 +303,26 @@ test('legacy unknown-start records remain excluded until a later start is observ
   const h=sr.normalizeHistory([{slug:'legacy',at:morning},{slug:'legacy',at:morning-1000},{slug:'bad',at:NaN}]);
   assert.equal(h.length,1);assert.equal(sr.isRecorded({slug:'legacy',startedAt:morning-5000},h),true);
   assert.equal(sr.isRecorded({slug:'legacy',startedAt:morning+1},h),false);
+});
+test('official unknown-start rooms are only blocked in the current slot', () => {
+  const p=sr.periodAt(morning), next=sr.periodAt(at('2026-09-11T15:00:00+09:00'));
+  const listed=Array.from({length:59},(_,i)=>({slug:`room-${i}`,startedAt:null as number|null}));
+  const current=listed.slice(0,3).map(r=>({...r,at:morning}));
+  const history=sr.normalizeHistory([...current,...listed.map(r=>({...r,at:p.start-60000}))]);
+  assert.equal(history.length,59);
+  assert.equal(listed.filter(r=>sr.isRecorded(r,history,morning)).length,3);
+  assert.equal(listed.filter(r=>!sr.isRecorded(r,history,morning)).length,56);
+  assert.equal(listed.filter(r=>sr.isRecorded(r,history,next.start)).length,0);
+  assert.equal(sr.countDone(sr.normalizeState(null,next),20),0);
+  const s=sr.normalizeState({period:p.key,done:current},p);
+  assert.equal(sr.countDone(s,20),3);
+  assert.equal(sr.addDone(s,{slug:'room-0',startedAt:null},morning+1000,p),true);
+  assert.equal(s.done.length,3);
+  const reviews=sr.normalizeReviews(Array.from({length:518},(_,i)=>({slug:`review-${i}`,period:p.key,at:morning,source:'timer'})));
+  assert.equal(reviews.length,518);
+  assert.equal(sr.isRecorded({slug:'room-10',startedAt:null},history,morning),false);
+  assert.match(srCode,/for \(const item of doc\.querySelectorAll\('\.onlive-list \.st-onlivelist__item'\)\)/);
+  assert.match(srCode,/found\.push\(\{ slug: r\.slug, roomId: validRoomId\(a\.getAttribute\('data-room-id'\)\), startedAt: null/);
 });
 
 
@@ -393,4 +425,39 @@ test('review ledger keeps completion separate from reward proof and rejects fabr
     assert.equal(runner.normalizeReviews([null, {...record,period:'wrong'}, {...record,source:'legacy'}, {...record,at:Infinity}, {...record,slug:'../bad'}]).length,0);
     assert.equal(runner.normalizeReviews({malformed:true}).length,0);
   }
+});
+
+test('SR radio audio and audio-only HLS video credit only real visible forward playback', () => {
+  const audio = {tagName:'AUDIO',currentTime:4.25,paused:false,ended:false,error:null,readyState:4};
+  const audioActive = sr.mediaEvidence(audio,4,250,true);
+  assert.equal(audioActive.type,'audio'); assert.equal(audioActive.audioOnly,true);
+  assert.equal(audioActive.delta,250); assert.equal(audioActive.advanced,true);
+  assert.equal(sr.mediaEvidence({...audio,paused:true},4,250,true).delta,0);
+  assert.equal(sr.mediaEvidence({...audio,readyState:1},4,250,true).delta,0);
+  assert.equal(sr.mediaEvidence(audio,4,250,false).delta,0);
+  assert.equal(sr.mediaEvidence({...audio,currentTime:12},4,250,true).delta,0,'HLS seeks and jumps cannot credit viewing');
+  assert.equal(sr.mediaEvidence(audio,undefined,250,true).delta,0,'First sample must not count');
+  const hls = {tagName:'VIDEO',currentTime:6.25,paused:false,ended:false,error:null,readyState:3,videoWidth:0,videoHeight:0};
+  assert.equal(sr.mediaEvidence(hls,6,250,true).delta,250);
+  assert.equal(sr.mediaEvidence(hls,6,250,true).audioOnly,true);
+  const video = {...hls,videoWidth:1280,videoHeight:720};
+  assert.equal(sr.mediaEvidence(video,6,250,true).delta,250,'Existing video path still credits actual progress');
+  assert.equal(sr.mediaEvidence(video,6,250,true).audioOnly,false);
+});
+
+test('SR reviews retain historic 300, cap at 1000 and dedupe verified status', () => {
+  const base = Date.parse('2026-09-11T05:00:00+09:00');
+  const period = sr.periodAt(base).key;
+  const records = Array.from({length:1100},(_,i)=>({slug:'room'+i,period,at:base+i*1000,source:'timer'}));
+  assert.equal(sr.normalizeReviews(records.slice(0,300)).length,300);
+  const capped = sr.normalizeReviews(records);
+  assert.equal(capped.length,1000);
+  assert.equal(capped[0].slug,'room100');
+  const upgraded = sr.normalizeReviews([...capped,{...records[1000],reward:'manual'},records[1000]]);
+  assert.equal(upgraded.length,1000);
+  assert.equal(upgraded.find(r=>r.slug==='room1000')?.reward,'manual');
+  const mixed = sr.normalizeReviews([...records.slice(0,1000),...records.slice(1000).map(r=>({...r,reward:'manual'}))]);
+  assert.equal(mixed.length,1000);
+  assert.equal(mixed.some(r=>r.slug==='room0'),true,'Unresolved history takes priority');
+  assert.equal(mixed.some(r=>r.slug==='room1099'),false);
 });
