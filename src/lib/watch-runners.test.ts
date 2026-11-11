@@ -20,7 +20,7 @@ type Runner = {
   returnListUrl: (url?: string) => string;
   parseStartedAt: (text: string) => number | null;
   normalizeHistory: (raw: unknown) => {slug:string;at:number;startedAt:number|null}[];
-  isRecorded: (room: Room, records: {slug:string;at:number}[]) => boolean;
+  isRecorded: (room: Room, records: {slug:string;at:number}[], now?: number) => boolean;
   periodAt: (now: number) => Period;
   parseRoom: (url: string) => { slug: string; viewing: boolean } | null;
   liveUrl: (slug: string) => string;
@@ -262,7 +262,7 @@ test('both installers are self-contained and do not automate service actions', (
   assert.ok(manualPlay >= 0 && nextHandler > manualPlay);
   assert.doesNotMatch(srCode.slice(0, manualPlay) + srCode.slice(nextHandler),/\.play\(/);
   assert.match(mxCode,/ブラウザでの視聴コイン付与・現行条件は未検証/);
-  assert.match(srCode,/@version\s+1\.6\.8/);
+  assert.match(srCode,/@version\s+1\.6\.9/);
 });
 
 test('standalone installers retain exact shared parsing and state helpers; SR-only media and review extensions are isolated', () => {
@@ -288,7 +288,8 @@ test('earned broadcast exclusion survives a fresh queue, count reset and 15:00',
   const nextPeriod=sr.periodAt(at('2026-09-11T15:00:00+09:00'));
   assert.equal(sr.countDone(sr.normalizeState(null,nextPeriod),20),0);
   assert.equal(sr.isRecorded(old,history),true);
-  assert.equal(sr.isRecorded({slug:old.slug,startedAt:null},history),true);
+  assert.equal(sr.isRecorded({slug:old.slug,startedAt:null},history,morning),true);
+  assert.equal(sr.isRecorded({slug:old.slug,startedAt:null},history,nextPeriod.start),false);
   assert.equal(sr.isRecorded({slug:old.slug,startedAt:at('2026-09-11T15:01:00+09:00')},history),false);
 });
 test('new broadcasts from the same room can count independently within one period', () => {
@@ -302,6 +303,26 @@ test('legacy unknown-start records remain excluded until a later start is observ
   const h=sr.normalizeHistory([{slug:'legacy',at:morning},{slug:'legacy',at:morning-1000},{slug:'bad',at:NaN}]);
   assert.equal(h.length,1);assert.equal(sr.isRecorded({slug:'legacy',startedAt:morning-5000},h),true);
   assert.equal(sr.isRecorded({slug:'legacy',startedAt:morning+1},h),false);
+});
+test('official unknown-start rooms are only blocked in the current slot', () => {
+  const p=sr.periodAt(morning), next=sr.periodAt(at('2026-09-11T15:00:00+09:00'));
+  const listed=Array.from({length:59},(_,i)=>({slug:`room-${i}`,startedAt:null as number|null}));
+  const current=listed.slice(0,3).map(r=>({...r,at:morning}));
+  const history=sr.normalizeHistory([...current,...listed.map(r=>({...r,at:p.start-60000}))]);
+  assert.equal(history.length,59);
+  assert.equal(listed.filter(r=>sr.isRecorded(r,history,morning)).length,3);
+  assert.equal(listed.filter(r=>!sr.isRecorded(r,history,morning)).length,56);
+  assert.equal(listed.filter(r=>sr.isRecorded(r,history,next.start)).length,0);
+  assert.equal(sr.countDone(sr.normalizeState(null,next),20),0);
+  const s=sr.normalizeState({period:p.key,done:current},p);
+  assert.equal(sr.countDone(s,20),3);
+  assert.equal(sr.addDone(s,{slug:'room-0',startedAt:null},morning+1000,p),true);
+  assert.equal(s.done.length,3);
+  const reviews=sr.normalizeReviews(Array.from({length:518},(_,i)=>({slug:`review-${i}`,period:p.key,at:morning,source:'timer'})));
+  assert.equal(reviews.length,518);
+  assert.equal(sr.isRecorded({slug:'room-10',startedAt:null},history,morning),false);
+  assert.match(srCode,/for \(const item of doc\.querySelectorAll\('\.onlive-list \.st-onlivelist__item'\)\)/);
+  assert.match(srCode,/found\.push\(\{ slug: r\.slug, roomId: validRoomId\(a\.getAttribute\('data-room-id'\)\), startedAt: null/);
 });
 
 

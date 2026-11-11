@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SR Mission Runner Mobile
 // @namespace    https://nao.qa/
-// @version      1.6.8
+// @version      1.6.9
 // @description  SHOWROOMの実再生時間を計測し、時間到達で端末へ自動記録して次の配信へ移動。公式回数は読取専用で常時連動。
 // @author       ackey + ChatGPT
 // @match        https://nao.qa/ap/*
@@ -17,7 +17,7 @@
 
 (() => {
   'use strict';
-  const CONFIG = {"kind": "sr", "version": "1.6.8", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
+  const CONFIG = {"kind": "sr", "version": "1.6.9", "home": "https://www.showroom-live.com/", "title": "🚀 SR Mission Runner", "key": "srmr_progress_v3", "id": "srmr-mobile"};
   const HOUR = 3600000;
   const DAY = 24 * HOUR;
   const integer = (n, min, max, fallback) => Number.isInteger(n) && n >= min && n <= max ? n : fallback;
@@ -140,7 +140,8 @@
   }
 
   // One high-water mark per room survives queue restarts and period changes.
-  // A later observed start is eligible; unknown/stale starts stay excluded.
+  // A later observed start is a new broadcast. Unknown starts match only
+  // records from the current 03:00/15:00 slot, not the lifetime high-water mark.
   function normalizeHistory(value) {
     const result = new Map();
     for (const r of Array.isArray(value) ? value : []) {
@@ -151,9 +152,12 @@
     }
     return [...result.values()];
   }
-  function isRecorded(room, records) {
+  function isRecorded(room, records, now) {
     const r = asRoom(room);
-    return records.some(d => d.slug === r.slug && (CONFIG.kind !== 'sr' || !validStart(r.startedAt) || r.startedAt <= d.at));
+    if (CONFIG.kind !== 'sr') return records.some(d => d.slug === r.slug);
+    if (validStart(r.startedAt)) return records.some(d => d.slug === r.slug && r.startedAt <= d.at);
+    const slot = periodAt(Number.isFinite(now) ? now : Date.now());
+    return records.some(d => d.slug === r.slug && d.at >= slot.start && d.at < slot.end);
   }
 
   function roomsOnly(value) {
@@ -183,7 +187,7 @@
   function addDone(s, room, now, period, source = 'legacy') {
     const r = asRoom(room);
     if (s.period !== period.key || now < period.start || now >= period.end || !liveUrl(r.slug)) return false;
-    if (!isRecorded(r, s.done)) s.done.push({ slug: r.slug, startedAt: validStart(r.startedAt), at: now, source: ['timer', 'official', 'manual'].includes(source) ? source : 'legacy' });
+    if (!isRecorded(r, s.done, now)) s.done.push({ slug: r.slug, startedAt: validStart(r.startedAt), at: now, source: ['timer', 'official', 'manual'].includes(source) ? source : 'legacy' });
     s.checkpoint = null;
     return true;
   }
