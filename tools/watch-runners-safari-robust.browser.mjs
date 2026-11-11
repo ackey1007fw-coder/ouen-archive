@@ -55,7 +55,7 @@ try{
   const prefs={seconds:35,target:20,autoNext:false};
   const favorites=[{slug:'favorite-one',name:'Favorite',roomId:'',startedAt:null}];
   const state={period:key,done,adjustment:0,queue:[],index:0,active:false,run:'',checkpoint:null,listUrl:'https://www.showroom-live.com/'};
-  const home='<h1>New30day</h1><ul>'+history.map(r=>`<li><span class="onlivecard-time is-onlive">配信中</span><article class="onlivecard"><a class="onlivecard-link" href="/r/${r.slug}">${r.slug}</a></article></li>`).join('')+'</ul>';
+  const home='<h1>New30day</h1><ul>'+done.map(r=>`<li><span class="onlivecard-time is-onlive">配信中</span><article class="onlivecard"><a class="onlivecard-link" href="/r/${r.slug}">${r.slug}</a></article></li>`).join('')+'</ul>';
   const store=new Map([[`srmr_progress_v3_${key}`,state],['srmr_progress_v3_broadcast_history',history],['srmr_progress_v3_broadcast_history_seeded',true],['srmr_progress_v3_watch_reviews',reviews],['srmr_progress_v3_prefs',prefs],['srmr_progress_v3_favorites',favorites]]);
   const unchanged=()=>{
    assert.deepEqual(store.get(`srmr_progress_v3_${key}`).done,done);
@@ -68,7 +68,7 @@ try{
   const ctx=await makeContext(store,home),p=await ctx.newPage();
   await p.clock.install({time:new Date(now)});await p.goto('https://www.showroom-live.com/');const panel=p.locator('#srmr-mobile');await panel.waitFor();
   assert.match(await panel.locator('#total').innerText(),/10 \/ 20/);
-  assert.match(await panel.locator('#name').innerText(),/未記録 0ルーム \/ 記録済み 16件/);
+  assert.match(await panel.locator('#name').innerText(),/未記録 0ルーム \/ 記録済み 10件/);
   assert.equal(await panel.locator('#start').isDisabled(),false);
   assert.equal(await panel.locator('#start').innerText(),'オンライブ一覧を開く ▶');
   unchanged();await capture(p,'recorded-home');
@@ -84,7 +84,28 @@ try{
   assert.deepEqual(store.get(`srmr_progress_v3_${key}`).queue.map(r=>r.slug),['room-two','room-three']);
   assert.equal(store.get(`srmr_progress_v3_${key}`).active,true);
   assert.match(await p.locator('#srmr-mobile #total').innerText(),/10 \/ 20/);
-  pass('recorded-only home (10 actual records / 16 exclusions) -> /onlive -> next unrecorded stream; records, history, reviews, favorites and preferences preserved');await ctx.close();
+  pass('recorded-only home (10 actual records this slot; 16 history rows kept) -> /onlive -> next unrecorded stream; records, history, reviews, favorites and preferences preserved');await ctx.close();
+ }
+ // Scenario 1c: the iPhone stall — current slot has 3 records, but 59 unknown-start
+ // rooms from earlier slots must not keep /onlive empty.
+ {
+  const previousAt=Number(key)-60000;
+  const done=Array.from({length:3},(_,i)=>({slug:`kept-${i}`,startedAt:null,at:now-60000,source:'timer'}));
+  const history=[...done.map(({slug,startedAt,at})=>({slug,startedAt,at})),...Array.from({length:59},(_,i)=>({slug:i===0?'room-one':i===1?'room-two':i===2?'room-three':`past-${i}`,startedAt:null,at:previousAt}))];
+  const reviews=[...done.map(r=>({...r,period:key,reward:'unconfirmed'})),...Array.from({length:515},(_,i)=>({slug:`review-${i}`,startedAt:null,period:String(Number(key)-12*3600000),at:previousAt,source:'timer',reward:'unconfirmed'}))];
+  const state={period:key,done,adjustment:0,queue:[],index:0,active:false,run:'',checkpoint:null,listUrl:'https://www.showroom-live.com/onlive'};
+  const store=new Map([[`srmr_progress_v3_${key}`,state],['srmr_progress_v3_broadcast_history',history],['srmr_progress_v3_broadcast_history_seeded',true],['srmr_progress_v3_watch_reviews',reviews]]);
+  const ctx=await makeContext(store),p=await ctx.newPage();
+  await p.clock.install({time:new Date(now)});await p.goto('https://www.showroom-live.com/onlive');const panel=p.locator('#srmr-mobile');await panel.waitFor();
+  assert.match(await panel.locator('#total').innerText(),/3 \/ 20/);
+  assert.match(await panel.locator('#name').innerText(),/未記録 3ルーム \/ 記録済み 0件/);
+  assert.equal(await panel.locator('#start').isDisabled(),false);
+  assert.equal((store.get('srmr_progress_v3_watch_reviews')||[]).length,518);
+  assert.equal(store.get('srmr_progress_v3_broadcast_history').length,62);
+  await panel.locator('#start').click();await p.waitForURL('https://www.showroom-live.com/lite/room-one');
+  assert.deepEqual(store.get(`srmr_progress_v3_${key}`).queue.map(r=>r.slug),['room-one','room-two','room-three']);
+  assert.equal(store.get(`srmr_progress_v3_${key}`).done.length,3);
+  pass('unknown-start /onlive rooms re-enter a new slot; 3/20 and 518-item ledger stay put');await ctx.close();
  }
  // /onlive must not redirect to itself when it also has no eligible candidates.
  for(const body of ['',onlive]){
